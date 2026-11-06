@@ -3,35 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.main import create_app
 from app.models.tables import labs
 from app.security.labs import LAB_TTL_SECONDS
-
-NOW = 1_793_923_200
-
-
-class Clock:
-    def __init__(self, t: int) -> None:
-        self.t = t
-
-    def __call__(self) -> int:
-        return self.t
-
-
-@pytest.fixture
-def clock():
-    return Clock(NOW)
-
-
-@pytest.fixture
-def client(tmp_path, clock):
-    app = create_app(f"sqlite:///{tmp_path / 'kg.db'}", clock=clock)
-    with TestClient(app) as c:
-        yield c
-    app.state.engine.dispose()
+from conftest import NOW
 
 
 def _new_lab(client) -> dict:

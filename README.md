@@ -3,14 +3,16 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 1.** The protocol core, the challenge store and lab authorization are implemented and tested.
-The Garage UI is a **mock shell** and is not yet connected to the backend.
+**Status: Sprint 2.** Protocol core, atomic challenge store, lab authorization and **browser key enrollment**
+are implemented and tested. The UI reads real backend state. Unlock and lock (challenge → sign → verify) arrive in Sprint 3.
 See [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md) for exactly what is and isn't proven.
 
 ## Layout
 
 ```
-apps/web/          Next.js 16 + TypeScript + Tailwind (Garage shell, mock state)
+apps/web/          Next.js 16 + TypeScript + Tailwind
+  lib/             encoding.ts (kg-auth-v1), crypto.ts (Web Crypto), keystore.ts (IndexedDB), api.ts
+  tests/           node --test (encoding vectors, Web Crypto interop)
 services/api/      FastAPI backend
   app/security/    protocol.py (kg-auth-v1 encoding + ECDSA verify), challenges.py (atomic consume), labs.py
   app/models/      DB tables, API schemas
@@ -33,18 +35,21 @@ uv run uvicorn app.main:create_app --factory --reload --port 8000
 ```bash
 cd apps/web
 npm install
+npm test             # TS encoder + Web Crypto tests
 npm run dev          # http://localhost:3000
 ```
 
-## Implemented API (Sprint 1)
+## Implemented API
 
 | Method | Endpoint | Notes |
 |--------|----------|-------|
 | POST | `/api/labs` | Creates a lab and one fictional vehicle. Returns `lab_token` once. |
 | GET | `/api/labs/{id}/vehicles` | Requires `Authorization: Bearer <lab_token>`. Any failure returns `404 LAB_NOT_FOUND`. |
+| POST | `/api/labs/{id}/keys` | Enroll a P-256 SPKI public key for a vehicle in this lab |
+| GET | `/api/labs/{id}/keys` | List key metadata (fingerprint, status; never the key bytes) |
 | GET | `/api/health` | Liveness check |
 
-The other spec endpoints (keys, challenges, authenticate, events, scenarios) are **not implemented yet**.
+Not implemented yet: revoke, challenges, authenticate, events, scenarios.
 
 ## Docs
 

@@ -120,3 +120,25 @@ scenario-scoped tables. A test enforces that nothing under `app/security/` or `a
 - Frontend: Next.js (App Router), TypeScript strict, Tailwind; npm (already installed).
 - SQLite with `BEGIN IMMEDIATE` for writes locally; the conditional-UPDATE pattern ports unchanged to PostgreSQL.
 - No Docker requirement for Sprint 1 (Docker is not installed); `docker-compose.yml` comes later.
+
+---
+
+## D-007 Browser key lifecycle — ACCEPTED (2026-11-05, Sprint 2)
+
+Resolves review item 11 (spec §12 "browser key persistence").
+
+- Keys are generated with `crypto.subtle.generateKey({ECDSA, P-256}, extractable=false, ["sign","verify"])`.
+  The private key can't be exported by any code, including KeyGuard's own (verified in Chromium:
+  `exportKey("pkcs8"|"jwk")` → `InvalidAccessError`).
+- Only the SPKI public key is sent. `POST /keys` uses a strict schema, so a stray `private_key` field
+  is rejected with 422 instead of being ignored.
+- The private `CryptoKey` handle is stored in **IndexedDB** (`keyguard` / `device-keys`), keyed by `key_id`
+  and tagged with `lab_id`. IndexedDB stores the opaque handle, so the key survives page refreshes.
+- It's saved **only after** the server accepts the public key **and** the server's fingerprint matches the one computed
+  locally. On any failure the key pair is discarded.
+- Starting a new lab deletes stored keys for every other lab: once the old lab's sessionStorage token is gone,
+  those keys can never be used again.
+- Limits: one vehicle per key; at most 10 keys per lab (`KEY_LIMIT_REACHED`); the same public key can't be
+  enrolled twice in a lab (`KEY_ALREADY_ENROLLED`, backed by a `UNIQUE(lab_id, fingerprint)` constraint).
+- Accepted limitation: anyone with script access to this origin can *use* (not export) the key. That's inherent
+  to browser keys and is listed under "Explicit non-claims" in the threat model.

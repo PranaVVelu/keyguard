@@ -1,7 +1,8 @@
 # Security Test Evidence
 
-Last run: 2026-11-05, local (macOS arm64, Python 3.12.16, SQLite WAL). **67 passed, 0 failed.**
-Command: `cd services/api && uv run pytest -v`
+Last run: 2026-11-05 (Sprint 2), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
+**Backend: 86 passed, 0 failed** (`cd services/api && uv run pytest -v`).
+**Web: 30 passed, 0 failed** (`cd apps/web && npm test`, using Node's built-in Web Crypto).
 
 CI (`.github/workflows/ci.yml`) runs the same suite. First green run: 2026-11-06, run 42150651689 (API + web jobs passed).
 
@@ -40,8 +41,31 @@ This was a manual check and is not automated.
 - A transaction rollback leaves the challenge usable, so a failed state change can't burn it silently:
   `test_rolled_back_consumption_leaves_challenge_usable`.
 
+## Sprint 2 evidence: enrollment and browser↔server interop
+
+| Property | Evidence |
+|----------|----------|
+| Server stores the public key only (91-byte SPKI) | `test_server_stores_only_the_public_key` |
+| Extra fields such as `private_key` are rejected | `test_extra_fields_such_as_private_key_are_rejected` |
+| Non-P-256, RSA and garbage keys rejected, nothing stored | `test_invalid_public_keys_are_rejected[*]` |
+| Can't enroll against another lab's vehicle | `test_cannot_enroll_against_another_labs_vehicle` |
+| Cross-lab enroll/list denied with uniform 404 | `test_cross_lab_key_listing_and_enrollment_are_denied` |
+| Duplicate key / key limit | `test_same_public_key_cannot_be_enrolled_twice`, `test_key_limit_per_lab` |
+| Events contain no keys or tokens (T11) | `test_enrollment_events_record_ids_and_reasons_only` |
+| TS encoder is byte-identical to Python | `encoding.test.ts`: all 4 vectors |
+| Web Crypto accepts and rejects Python signatures correctly | `crypto.test.ts`: all 7 verify vectors |
+| **Python verifies a Web Crypto signature** | `test_committed_webcrypto_vector_verifies` (committed vector), `test_fresh_webcrypto_signature_verifies` (new key each run; skipped when Node is missing, as in the CI API job) |
+| Private key is non-extractable | `crypto.test.ts` (Node), plus a manual check in Chromium: `exportKey` refused for pkcs8 and jwk |
+
+### Manual end-to-end check (Chromium in the Claude desktop browser pane, 2026-11-05)
+Start lab → Garage shows the backend vehicle (`LOCKED`, from the API) → Digital Keys → "Generate & enroll key" →
+browser fingerprint `5fd990cb…670c` == server fingerprint → page reload → key still present in IndexedDB,
+`extractable: false`, usages `["sign"]`; lab token in sessionStorage, localStorage empty.
+This was manual and isn't automated yet (Playwright is planned).
+
 ## Known gaps
 
-- No TypeScript or Web Crypto interop test yet. The vectors exist, but the browser encoder comes in Sprint 2.
+- No automated real-browser (Playwright) test yet; browser behaviour above was checked manually.
+- The CI API job has no Node, so the *fresh* interop test is skipped there; the committed vector still runs.
 - The concurrency test is proven on SQLite only. PostgreSQL must be re-verified before hosting.
 - Each test does not yet record scenario ID, timing or failure category (spec §7). That structured runner comes in Sprint 4.
