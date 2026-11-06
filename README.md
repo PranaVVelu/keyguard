@@ -52,6 +52,7 @@ The other spec endpoints (keys, challenges, authenticate, events, scenarios) are
 - [Threat model](docs/THREAT_MODEL.md)
 - [Decisions](docs/DECISIONS.md)
 - [Security test evidence](docs/SECURITY_TESTS.md)
+- [Design direction (draft)](docs/DESIGN_DIRECTION.md)
 - [Spec (PDF)](docs/KeyGuard_Product_and_Engineering_Specification.pdf)
 
 ## Limitations
