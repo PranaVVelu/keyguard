@@ -3,7 +3,7 @@
 Last run: 2026-11-05, local (macOS arm64, Python 3.12.16, SQLite WAL). **67 passed, 0 failed.**
 Command: `cd services/api && uv run pytest -v`
 
-CI (`.github/workflows/ci.yml`) runs the same suite. It has **not run yet**: the repo hasn't been pushed to GitHub.
+CI (`.github/workflows/ci.yml`) runs the same suite. First green run: 2026-11-06, run 42150651689 (API + web jobs passed).
 
 ## Mandatory hardened matrix (spec §7): status after Sprint 1
 
