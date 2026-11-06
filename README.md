@@ -3,18 +3,19 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 2.** Protocol core, atomic challenge store, lab authorization and **browser key enrollment**
-are implemented and tested. The UI reads real backend state. Unlock and lock (challenge → sign → verify) arrive in Sprint 3.
+**Status: Sprint 3. Authenticated unlock and lock work end to end.** The browser enrolls a non-extractable key,
+signs a server challenge, and the backend verifies and decides. All 11 rows of the spec's mandatory test matrix
+pass through the real API.
 See [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md) for exactly what is and isn't proven.
 
 ## Layout
 
 ```
 apps/web/          Next.js 16 + TypeScript + Tailwind
-  lib/             encoding.ts (kg-auth-v1), crypto.ts (Web Crypto), keystore.ts (IndexedDB), api.ts
+  lib/             encoding.ts (kg-auth-v1), crypto.ts (Web Crypto), keystore.ts (IndexedDB), auth-flow.ts, api.ts
   tests/           node --test (encoding vectors, Web Crypto interop)
 services/api/      FastAPI backend
-  app/security/    protocol.py (kg-auth-v1 encoding + ECDSA verify), challenges.py (atomic consume), labs.py
+  app/security/    protocol.py (kg-auth-v1 + ECDSA verify), challenges.py (atomic consume), authenticate.py (decision engine), labs.py, keys.py
   app/models/      DB tables, API schemas
   app/routes/      HTTP endpoints
   tests/           pytest suite
@@ -47,9 +48,11 @@ npm run dev          # http://localhost:3000
 | GET | `/api/labs/{id}/vehicles` | Requires `Authorization: Bearer <lab_token>`. Any failure returns `404 LAB_NOT_FOUND`. |
 | POST | `/api/labs/{id}/keys` | Enroll a P-256 SPKI public key for a vehicle in this lab |
 | GET | `/api/labs/{id}/keys` | List key metadata (fingerprint, status; never the key bytes) |
+| POST | `/api/labs/{id}/challenges` | Issue a 30-second single-use challenge for (vehicle, key, action) |
+| POST | `/api/labs/{id}/authenticate` | Verify a signed challenge; returns allow/deny with a reason and a 6-step trace |
 | GET | `/api/health` | Liveness check |
 
-Not implemented yet: revoke, challenges, authenticate, events, scenarios.
+Not implemented yet: revoke (Sprint 4), events API, attack-lab scenarios.
 
 ## Docs
 

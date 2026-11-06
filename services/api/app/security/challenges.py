@@ -6,7 +6,7 @@ import enum
 import secrets
 from dataclasses import dataclass
 
-from sqlalchemy import Connection, and_, insert, select, update
+from sqlalchemy import Connection, and_, func, insert, select, update
 
 from app.models.tables import challenges
 from app.security.encoding import b64url_encode, new_id
@@ -101,3 +101,17 @@ def consume_challenge(conn: Connection, *, lab_id: str, challenge_id: str, now: 
     if existing.consumed_at is not None:
         return ConsumeResult.ALREADY_CONSUMED
     return ConsumeResult.EXPIRED
+
+
+MAX_OPEN_CHALLENGES_PER_LAB = 20
+
+
+def count_open_challenges(conn: Connection, *, lab_id: str, now: int) -> int:
+    """Unconsumed, unexpired challenges. Capped so a lab can't pile up unbounded rows (T12)."""
+    return conn.execute(
+        select(func.count())
+        .select_from(challenges)
+        .where(
+            and_(challenges.c.lab_id == lab_id, challenges.c.consumed_at.is_(None), challenges.c.expires_at > now)
+        )
+    ).scalar_one()

@@ -62,3 +62,46 @@ class ErrorBody(_Strict):
 
 class ErrorResponse(_Strict):
     error: ErrorBody
+
+
+_ID = r"^{p}_[A-Za-z0-9_-]{{22}}$"
+
+
+class ChallengeRequest(_Strict):
+    vehicle_id: str = Field(pattern=_ID.format(p="veh"))
+    key_id: str = Field(pattern=_ID.format(p="key"))
+    action: Literal["unlock", "lock"]
+
+
+class ChallengeIssued(_Strict):
+    protocol_version: Literal["kg-auth-v1"]
+    challenge_id: str
+    vehicle_id: str
+    key_id: str
+    nonce: str
+    action: Literal["unlock", "lock"]
+    expires_at: int
+
+
+class AuthenticateRequest(_Strict):
+    challenge_id: str = Field(pattern=_ID.format(p="chl"))
+    key_id: str = Field(pattern=_ID.format(p="key"))
+    # 64-byte P1363 signature = 86 base64url chars; allow slack so malformed ones reach the engine and burn the challenge.
+    signature: str = Field(min_length=1, max_length=256)
+
+
+class TraceStepOut(_Strict):
+    step: str
+    status: Literal["pass", "fail", "skipped"]
+    detail: str | None
+
+
+class DecisionOut(_Strict):
+    decision: Literal["allow", "deny"]
+    reason: str | None
+    challenge_id: str
+    vehicle_id: str | None
+    action: Literal["unlock", "lock"] | None
+    lock_state: Literal["locked", "unlocked"] | None
+    duration_ms: int
+    trace: list[TraceStepOut]
