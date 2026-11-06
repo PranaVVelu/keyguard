@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import make_engine
 from app.errors import install_error_handlers
-from app.routes import labs
+from app.routes import keys, labs
 
 
 def create_app(database_url: str | None = None, clock: Callable[[], int] | None = None) -> FastAPI:
@@ -30,6 +30,7 @@ def create_app(database_url: str | None = None, clock: Callable[[], int] | None 
     )
     install_error_handlers(app)
     app.include_router(labs.router)
+    app.include_router(keys.router)
 
     @app.get("/api/health")
     def health() -> dict:

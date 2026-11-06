@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Column, ForeignKey, Index, Integer, LargeBinary, MetaData, String, Table, Text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    MetaData,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 
 metadata = MetaData()
 
@@ -39,6 +51,7 @@ digital_keys = Table(
     Column("created_at", Integer, nullable=False),
     Column("revoked_at", Integer),
     CheckConstraint("status IN ('active', 'revoked')", name="ck_key_status"),
+    UniqueConstraint("lab_id", "fingerprint", name="uq_key_fingerprint_per_lab"),
 )
 
 challenges = Table(

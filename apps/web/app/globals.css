@@ -10,6 +10,8 @@
   --accent: #6cb4ff;
   --warn-bg: #2b2210;
   --warn-fg: #f5c26b;
+  --allow: #4ade80;
+  --deny: #f87171;
 }
 
 @theme inline {
@@ -21,7 +23,10 @@
   --color-accent: var(--accent);
   --color-warn-bg: var(--warn-bg);
   --color-warn-fg: var(--warn-fg);
+  --color-allow: var(--allow);
+  --color-deny: var(--deny);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 body {
