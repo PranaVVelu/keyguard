@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "apps/web", "run", "dev"], "port": 3000 },
+    { "name": "api", "runtimeExecutable": "services/api/.venv/bin/uvicorn", "runtimeArgs": ["app.main:create_app", "--factory", "--app-dir", "services/api", "--port", "8000"], "port": 8000 }
+  ]
+}

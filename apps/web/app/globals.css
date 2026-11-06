@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/* Dark, restrained automotive palette (spec §8). */
+:root {
+  --bg: #0b0d10;
+  --panel: #13171c;
+  --line: #242a32;
+  --fg: #e6e9ee;
+  --muted: #8a94a3;
+  --accent: #6cb4ff;
+  --warn-bg: #2b2210;
+  --warn-fg: #f5c26b;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-fg: var(--warn-fg);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

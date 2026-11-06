@@ -1,0 +1,20 @@
+# Python
+services/api/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+*.db-wal
+*.db-shm
+
+# Node / Next.js
+node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts
+*.tsbuildinfo
+
+# Env / OS
+.env*
+!.env.example
+.DS_Store
