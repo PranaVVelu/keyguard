@@ -1,16 +1,37 @@
 # Security Test Evidence
 
-Last run: 2026-11-06 (Sprint 3), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
-**Backend: 133 passed, 0 failed** (`cd services/api && uv run pytest -v`).
+Last run: 2026-11-06 (Sprint 4), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
+**Backend: 156 passed, 0 failed** (`cd services/api && uv run pytest -v`).
 **Web: 35 passed, 0 failed** (`cd apps/web && npm test`).
+**Structured matrix: 11/11 pass**: [`docs/evidence/matrix-latest.md`](evidence/matrix-latest.md) (JSON alongside).
 
-CI (`.github/workflows/ci.yml`) runs both suites on every push and PR.
+CI (`.github/workflows/ci.yml`) runs both suites **and the structured matrix** on every push and PR. The matrix table
+goes into the run summary and is uploaded as the `security-matrix` artifact, and any non-pass fails the build.
+
+## Structured matrix runner (spec §7 evidence format)
+
+`uv run python -m app.evidence.matrix --json out.json --markdown out.md`
+
+Each of the 11 scenarios (MX-01 … MX-11) runs against a **fresh app and database** through the real HTTP API and
+records: scenario ID, expected decision, observed decision, reason, whether vehicle state changed, outcome and timing.
+Outcomes are classified as spec §7 requires:
+
+| Outcome | Meaning |
+|---------|---------|
+| `pass` | observed matches expected |
+| `security_failure` | unauthorized acceptance: a deny/reject row allowed, a deny changed vehicle state, or >1 concurrent allow |
+| `functional_failure` | a valid request was denied, or a deny happened for an unexpected reason |
+| `infrastructure_failure` | the scenario itself errored, so the result is untrustworthy |
+
+The runner is itself tested (`tests/test_matrix_runner.py`). With replay protection deliberately broken
+(consumption always "succeeds"), it reports MX-04, MX-05 and MX-08 as **security_failure** and exits non-zero.
+A crashing scenario is reported as **infrastructure_failure**, never as a pass.
 
 ## Mandatory hardened matrix (spec §7): status after Sprint 3
 
 All rows are now proven **end-to-end through the HTTP API** (`tests/test_authenticate_api.py`), except
-row 8, which runs through the full authentication engine with 16 real threads (no HTTP layer). Revocation
-is applied directly in storage until the revoke endpoint lands (Sprint 4).
+row 8, which runs through the full authentication engine with 16 real threads (no HTTP layer). Since Sprint 4,
+revocation uses the real `POST /keys/{id}/revoke` endpoint.
 
 | # | Scenario | Expected | Observed | Tests |
 |---|----------|----------|----------|-------|
@@ -82,11 +103,15 @@ browser fingerprint `5fd990cb…670c` == server fingerprint → page reload → 
 `extractable: false`, usages `["sign"]`; lab token in sessionStorage, localStorage empty.
 This was manual and isn't automated yet (Playwright is planned).
 
+### Manual revocation journey in Chromium (Sprint 4, 2026-11-06)
+Enrolled "Phone A" and "Phone B" in the UI → requested an unlock challenge for Phone A → **revoked Phone A** in the UI
+(two-step confirm) → signed that earlier challenge with Phone A's still-present private key (a valid signature) →
+**deny `KEY_REVOKED`** (trace fails at `key_active_and_bound`), vehicle stayed `locked` → a new challenge for Phone A →
+**403 `KEY_REVOKED`** → Garage offers only Phone B → unlock **ALLOWED**.
+
 ## Known gaps
 
 - No automated real-browser (Playwright) test yet; browser behaviour above was checked manually.
 - The CI API job has no Node, so the *fresh* interop test is skipped there; the committed vector still runs.
 - The concurrency test is proven on SQLite only. PostgreSQL must be re-verified before hosting.
-- Each test does not yet record scenario ID, timing or failure category as structured output (spec §7). The structured runner comes in Sprint 4.
-- Revocation is applied directly in storage in the tests; the revoke endpoint comes in Sprint 4.
 - Concurrency has been proven on SQLite only; re-verify on PostgreSQL before hosting.

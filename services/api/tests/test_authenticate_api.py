@@ -149,17 +149,17 @@ def test_row02_incorrect_signature_denies(enrolled, make_sig, reason):
 # --- Row 3: revoked key → Deny ----------------------------------------------------------------
 
 
-def _revoke_in_db(lab, key_id):
-    # The revoke endpoint lands in Sprint 4; until then, revoke directly in storage.
-    with lab.client.app.state.engine.begin() as conn:
-        conn.execute(update(digital_keys).where(digital_keys.c.id == key_id).values(status="revoked", revoked_at=NOW))
+def _revoke(lab, key_id):
+    resp = lab.client.post(f"/api/labs/{lab.id}/keys/{key_id}/revoke", headers=lab.headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "revoked"
 
 
 def test_row03_key_revoked_after_challenge_issued_is_denied(enrolled):
     """Matrix row 3: Revoked key → Deny, even with a valid signature over a challenge issued while it was active."""
     lab, key_id, key = enrolled
     chl = _issue(lab, key_id)
-    _revoke_in_db(lab, key_id)
+    _revoke(lab, key_id)
     body = lab.authenticate(chl["challenge_id"], key_id, sign(key, chl)).json()
     assert (body["decision"], body["reason"]) == ("deny", "KEY_REVOKED")
     assert lab.lock_state() == "locked"
@@ -167,7 +167,7 @@ def test_row03_key_revoked_after_challenge_issued_is_denied(enrolled):
 
 def test_row03_revoked_key_cannot_get_a_challenge(enrolled):
     lab, key_id, _ = enrolled
-    _revoke_in_db(lab, key_id)
+    _revoke(lab, key_id)
     resp = lab.challenge(key_id)
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "KEY_REVOKED"
@@ -178,7 +178,7 @@ def test_row03_other_active_key_still_works_after_revocation(lab):
     revoked_id, revoked_key = lab.enroll()
     active_id, active_key = lab.enroll()
     chl_r = _issue(lab, revoked_id)
-    _revoke_in_db(lab, revoked_id)
+    _revoke(lab, revoked_id)
     assert lab.authenticate(chl_r["challenge_id"], revoked_id, sign(revoked_key, chl_r)).json()["decision"] == "deny"
     chl_a = _issue(lab, active_id)
     assert lab.authenticate(chl_a["challenge_id"], active_id, sign(active_key, chl_a)).json()["decision"] == "allow"

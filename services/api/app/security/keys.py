@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Connection, and_, func, insert, select
+from sqlalchemy import Connection, and_, func, insert, select, update
 
 from app.models.tables import digital_keys, vehicles
 from app.security.encoding import b64url_encode, new_id
@@ -105,3 +105,16 @@ def get_key_spki(conn: Connection, *, lab_id: str, key_id: str) -> str | None:
         select(digital_keys.c.public_key).where(and_(digital_keys.c.id == key_id, digital_keys.c.lab_id == lab_id))
     ).scalar()
     return None if der is None else b64url_encode(der)
+
+
+def revoke_key(conn: Connection, *, lab_id: str, key_id: str, now: int) -> KeyRecord | None:
+    """Mark a key revoked. Takes effect immediately: authenticate re-checks status inside its transaction.
+
+    Idempotent: revoking an already-revoked key keeps its original revoked_at. Returns None for an unknown key.
+    """
+    conn.execute(
+        update(digital_keys)
+        .where(and_(digital_keys.c.id == key_id, digital_keys.c.lab_id == lab_id, digital_keys.c.status == "active"))
+        .values(status="revoked", revoked_at=now)
+    )
+    return next((k for k in list_keys(conn, lab_id=lab_id) if k.id == key_id), None)

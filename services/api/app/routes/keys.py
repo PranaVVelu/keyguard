@@ -6,7 +6,8 @@ from app.errors import ApiError
 from app.models.schemas import DigitalKey, EnrollKeyRequest, ErrorResponse, KeyList
 from app.routes.labs import require_lab
 from app.security.events import record_event
-from app.security.keys import EnrollmentError, enroll_key, list_keys
+from app.security.keys import EnrollmentError, enroll_key, list_keys, revoke_key
+from app.security.encoding import is_valid_id
 from app.security.protocol import ProtocolError
 
 router = APIRouter(prefix="/api/labs")
@@ -54,3 +55,23 @@ def post_key(body: EnrollKeyRequest, request: Request, lab_id: str = Depends(req
 def get_keys(request: Request, lab_id: str = Depends(require_lab)) -> KeyList:
     with request.app.state.engine.connect() as conn:
         return KeyList(keys=[DigitalKey(**k.__dict__) for k in list_keys(conn, lab_id=lab_id)])
+
+
+@router.post(
+    "/{lab_id}/keys/{key_id}/revoke",
+    response_model=DigitalKey,
+    responses={404: {"model": ErrorResponse}},
+)
+def post_revoke(key_id: str, request: Request, lab_id: str = Depends(require_lab)) -> DigitalKey:
+    """Revoke a credential. Any challenge already issued to it is denied at authenticate time (KEY_REVOKED)."""
+    state = request.app.state
+    now = state.clock()
+    with state.engine.begin() as conn:
+        record = revoke_key(conn, lab_id=lab_id, key_id=key_id, now=now) if is_valid_id(key_id, "key") else None
+        if record is None:
+            raise ApiError(404, "KEY_UNKNOWN", "Key not found in this lab")
+        record_event(
+            conn, lab_id=lab_id, event_type="key_revoked", outcome="success",
+            vehicle_id=record.vehicle_id, key_id=key_id, now=now,
+        )
+    return DigitalKey(**record.__dict__)
