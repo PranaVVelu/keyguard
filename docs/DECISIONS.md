@@ -87,10 +87,15 @@ delimiter-joined strings (ambiguous framing, explicitly disallowed by spec).
      `CHALLENGE_CONSUMED` / `CHALLENGE_EXPIRED`. Then update the vehicle lock state and write the event. Commit.
 - **Burn on failure (recommended):** any authenticate attempt that reaches step 2 for a valid
   challenge consumes it, even if it fails later, so each challenge gets one attempt. **ACCEPTED (O-2, 2026-11-05).**
-- **Implementation note (Sprint 1):** to get burn-on-failure without a check-then-act gap, the Sprint 3
-  authenticate engine will run the conditional consume (step 5) right after step 2, in the same
-  transaction, and then do steps 3–4. Consumption always commits; the vehicle state changes only if every
-  check passes. `consume_challenge` already supports this (it is transaction-scoped).
+- **As built (Sprint 3), `app/security/authenticate.py`:** load challenge → **consume immediately**
+  (conditional UPDATE) → key matches challenge → key active and bound → verify signature → update vehicle.
+  All of this runs in one transaction. Denies still commit, so the burn and the event persist; only an allow
+  changes vehicle state. A request rejected *before* the engine (bad lab token, schema error) doesn't burn
+  the challenge.
+- `/authenticate` returns **200 for both allow and deny**: a deny is a decision, not a transport error.
+- The client refuses to sign a challenge whose vehicle, key or action differs from what the user asked for
+  (`apps/web/lib/auth-flow.ts`).
+- Per-lab cap of 20 open (unconsumed, unexpired) challenges → 429 `CHALLENGE_LIMIT_REACHED`.
 - Revocation takes effect immediately: a challenge issued before revocation fails at step 3.
 - Expiry and consumption are checked inside the conditional UPDATE, so there is no gap between
   checking and consuming (TOCTOU).

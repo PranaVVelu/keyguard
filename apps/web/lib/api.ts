@@ -72,3 +72,54 @@ export async function enrollKey(
     body: JSON.stringify({ vehicle_id: input.vehicleId, public_key: input.publicKey, label: input.label }),
   });
 }
+
+export type Action = "unlock" | "lock";
+
+export interface Challenge {
+  protocol_version: "kg-auth-v1";
+  challenge_id: string;
+  vehicle_id: string;
+  key_id: string;
+  nonce: string;
+  action: Action;
+  expires_at: number;
+}
+
+export interface TraceStep {
+  step: string;
+  status: "pass" | "fail" | "skipped";
+  detail: string | null;
+}
+
+export interface Decision {
+  decision: "allow" | "deny";
+  reason: string | null;
+  challenge_id: string;
+  vehicle_id: string | null;
+  action: Action | null;
+  lock_state: "locked" | "unlocked" | null;
+  duration_ms: number;
+  trace: TraceStep[];
+}
+
+export async function issueChallenge(
+  session: LabSession,
+  input: { vehicleId: string; keyId: string; action: Action },
+): Promise<Challenge> {
+  return request<Challenge>(`/api/labs/${session.labId}/challenges`, {
+    method: "POST",
+    session,
+    body: JSON.stringify({ vehicle_id: input.vehicleId, key_id: input.keyId, action: input.action }),
+  });
+}
+
+export async function authenticate(
+  session: LabSession,
+  input: { challengeId: string; keyId: string; signature: string },
+): Promise<Decision> {
+  return request<Decision>(`/api/labs/${session.labId}/authenticate`, {
+    method: "POST",
+    session,
+    body: JSON.stringify({ challenge_id: input.challengeId, key_id: input.keyId, signature: input.signature }),
+  });
+}

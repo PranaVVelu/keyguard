@@ -84,6 +84,22 @@ def list_keys(conn: Connection, *, lab_id: str) -> list[KeyRecord]:
     return [KeyRecord(**r) for r in rows]
 
 
+@dataclass(frozen=True)
+class KeyAuthInfo:
+    vehicle_id: str
+    status: str
+    spki_der: bytes
+
+
+def get_key_auth_info(conn: Connection, *, lab_id: str, key_id: str) -> KeyAuthInfo | None:
+    row = conn.execute(
+        select(digital_keys.c.vehicle_id, digital_keys.c.status, digital_keys.c.public_key).where(
+            and_(digital_keys.c.id == key_id, digital_keys.c.lab_id == lab_id)
+        )
+    ).first()
+    return None if row is None else KeyAuthInfo(vehicle_id=row.vehicle_id, status=row.status, spki_der=row.public_key)
+
+
 def get_key_spki(conn: Connection, *, lab_id: str, key_id: str) -> str | None:
     der = conn.execute(
         select(digital_keys.c.public_key).where(and_(digital_keys.c.id == key_id, digital_keys.c.lab_id == lab_id))
