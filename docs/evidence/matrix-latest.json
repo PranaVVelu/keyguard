@@ -1,0 +1,168 @@
+{
+  "matrix": "keyguard-hardened-v1",
+  "spec": "KeyGuard spec v1.0 \u00a77",
+  "generated_at": "2026-11-06T04:07:18Z",
+  "git_commit": "4a41d14",
+  "python": "3.12.16",
+  "platform": "Darwin arm64",
+  "summary": {
+    "total": 11,
+    "pass": 11
+  },
+  "results": [
+    {
+      "id": "MX-01",
+      "title": "Active key + fresh challenge",
+      "expected": "allow",
+      "expected_reasons": [],
+      "observed": "allow",
+      "reason": null,
+      "state_changed": true,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 217.6
+    },
+    {
+      "id": "MX-02",
+      "title": "Incorrect signature",
+      "expected": "deny",
+      "expected_reasons": [
+        "SIGNATURE_INVALID"
+      ],
+      "observed": "deny",
+      "reason": "SIGNATURE_INVALID",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 19.8
+    },
+    {
+      "id": "MX-03",
+      "title": "Revoked key",
+      "expected": "deny",
+      "expected_reasons": [
+        "KEY_REVOKED"
+      ],
+      "observed": "deny",
+      "reason": "KEY_REVOKED",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 21.2
+    },
+    {
+      "id": "MX-04",
+      "title": "Expired challenge",
+      "expected": "deny",
+      "expected_reasons": [
+        "CHALLENGE_EXPIRED"
+      ],
+      "observed": "deny",
+      "reason": "CHALLENGE_EXPIRED",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 18.1
+    },
+    {
+      "id": "MX-05",
+      "title": "Consumed challenge replay",
+      "expected": "deny",
+      "expected_reasons": [
+        "CHALLENGE_CONSUMED"
+      ],
+      "observed": "deny",
+      "reason": "CHALLENGE_CONSUMED",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 29.7
+    },
+    {
+      "id": "MX-06",
+      "title": "Wrong vehicle",
+      "expected": "deny",
+      "expected_reasons": [
+        "SIGNATURE_INVALID",
+        "VEHICLE_MISMATCH"
+      ],
+      "observed": "deny",
+      "reason": "SIGNATURE_INVALID",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 17.8
+    },
+    {
+      "id": "MX-07",
+      "title": "Wrong requested action",
+      "expected": "deny",
+      "expected_reasons": [
+        "SIGNATURE_INVALID"
+      ],
+      "observed": "deny",
+      "reason": "SIGNATURE_INVALID",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 18.8
+    },
+    {
+      "id": "MX-08",
+      "title": "Two+ concurrent submissions (16 threads)",
+      "expected": "at_most_one_allow",
+      "expected_reasons": [],
+      "observed": "multi",
+      "reason": "1 allow / 15 deny",
+      "state_changed": true,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 141.0
+    },
+    {
+      "id": "MX-09",
+      "title": "Unknown key",
+      "expected": "deny",
+      "expected_reasons": [
+        "KEY_UNKNOWN",
+        "KEY_MISMATCH"
+      ],
+      "observed": "deny",
+      "reason": "KEY_UNKNOWN",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 19.8
+    },
+    {
+      "id": "MX-10",
+      "title": "Malformed payload (client-asserted decision field)",
+      "expected": "reject",
+      "expected_reasons": [
+        "REQUEST_INVALID"
+      ],
+      "observed": "reject",
+      "reason": "REQUEST_INVALID",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 21.1
+    },
+    {
+      "id": "MX-11",
+      "title": "Cross-lab request",
+      "expected": "deny",
+      "expected_reasons": [
+        "LAB_NOT_FOUND",
+        "CHALLENGE_NOT_FOUND"
+      ],
+      "observed": "deny",
+      "reason": "LAB_NOT_FOUND",
+      "state_changed": false,
+      "outcome": "pass",
+      "note": null,
+      "duration_ms": 20.1
+    }
+  ],
+  "coverage_note": "Curated scenarios only; passing does not prove universal security. Relay/proximity attacks are out of scope. Concurrency proven on SQLite."
+}

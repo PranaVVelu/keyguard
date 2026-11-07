@@ -25,6 +25,18 @@ jobs:
           enable-cache: true
       - run: uv sync --python 3.12 --locked
       - run: uv run pytest -v
+      - name: Mandatory security matrix (spec §7)
+        run: |
+          set +e
+          uv run python -m app.evidence.matrix --json matrix.json --markdown matrix.md
+          rc=$?
+          cat matrix.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-matrix
+          path: services/api/matrix.*
 
   web:
     name: Web lint, type-check and build

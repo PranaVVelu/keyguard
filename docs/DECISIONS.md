@@ -147,3 +147,16 @@ Resolves review item 11 (spec §12 "browser key persistence").
   enrolled twice in a lab (`KEY_ALREADY_ENROLLED`, backed by a `UNIQUE(lab_id, fingerprint)` constraint).
 - Accepted limitation: anyone with script access to this origin can *use* (not export) the key. That's inherent
   to browser keys and is listed under "Explicit non-claims" in the threat model.
+
+---
+
+## D-008 Revocation semantics and evidence runner — ACCEPTED (2026-11-06, Sprint 4)
+
+- `POST /api/labs/{id}/keys/{keyId}/revoke` sets `status=revoked`, `revoked_at=now`. It's **idempotent**: a repeat
+  call returns 200 and keeps the first `revoked_at`. An unknown key, or another lab's key, returns 404 `KEY_UNKNOWN`.
+- Revocation is immediate with no grace period: open challenges for the key are **not** deleted, but they fail at
+  authenticate (`KEY_REVOKED`) because key status is re-checked inside the authenticate transaction.
+- The browser keeps the revoked key's private handle in IndexedDB (useful for demonstrating that a valid signature
+  from a revoked key is still denied), but the Garage only offers keys that are active on the server.
+- The structured matrix runner lives in `app/evidence/` (not `app/lab/`, which is reserved for the deliberately
+  vulnerable verifier, D-005). It uses only public API calls plus the engine for the concurrency row.

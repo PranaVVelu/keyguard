@@ -154,3 +154,68 @@ def test_enrollment_events_record_ids_and_reasons_only(client, new_lab):
     )
     assert spki not in all_text
     assert new_lab["lab_token"] not in all_text
+
+
+# --- Revocation (F06) ---------------------------------------------------------------------
+
+
+def _revoke(client, lab, key_id, headers=None):
+    return client.post(f"/api/labs/{lab['lab_id']}/keys/{key_id}/revoke", headers=headers or lab["headers"])
+
+
+def test_revoke_marks_key_revoked_with_timestamp(client, new_lab, clock):
+    key_id = _enroll(client, new_lab).json()["id"]
+    clock.t = NOW + 60
+    resp = _revoke(client, new_lab, key_id)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (body["id"], body["status"], body["revoked_at"]) == (key_id, "revoked", NOW + 60)
+    listed = client.get(f"/api/labs/{new_lab['lab_id']}/keys", headers=new_lab["headers"]).json()["keys"]
+    assert listed == [body]
+
+
+def test_revoke_is_idempotent_and_keeps_first_timestamp(client, new_lab, clock):
+    key_id = _enroll(client, new_lab).json()["id"]
+    first = _revoke(client, new_lab, key_id).json()
+    clock.t = NOW + 999
+    second = _revoke(client, new_lab, key_id)
+    assert second.status_code == 200
+    assert second.json()["revoked_at"] == first["revoked_at"]
+
+
+def test_revoke_only_affects_the_named_key(client, new_lab):
+    a = _enroll(client, new_lab, label="a").json()["id"]
+    b = _enroll(client, new_lab, label="b").json()["id"]
+    _revoke(client, new_lab, a)
+    status = {k["id"]: k["status"] for k in client.get(f"/api/labs/{new_lab['lab_id']}/keys", headers=new_lab["headers"]).json()["keys"]}
+    assert status == {a: "revoked", b: "active"}
+
+
+@pytest.mark.parametrize("key_id", ["key_" + "Q" * 22, "nonsense", "key_../../x"])
+def test_revoke_unknown_key_is_404(client, new_lab, key_id):
+    resp = _revoke(client, new_lab, key_id)
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] in ("KEY_UNKNOWN", "NOT_FOUND")
+
+
+def test_cannot_revoke_another_labs_key(client, new_lab):
+    victim_key = _enroll(client, new_lab).json()["id"]
+    other = client.post("/api/labs").json()
+    other_headers = {"Authorization": f"Bearer {other['lab_token']}"}
+    # Using lab B's token on lab A's URL → lab not found.
+    assert _revoke(client, new_lab, victim_key, headers=other_headers).json()["error"]["code"] == "LAB_NOT_FOUND"
+    # Using lab B's own URL with lab A's key ID → key not found in lab B.
+    resp = client.post(f"/api/labs/{other['lab_id']}/keys/{victim_key}/revoke", headers=other_headers)
+    assert resp.json()["error"]["code"] == "KEY_UNKNOWN"
+    status = client.get(f"/api/labs/{new_lab['lab_id']}/keys", headers=new_lab["headers"]).json()["keys"][0]["status"]
+    assert status == "active"
+
+
+def test_revocation_is_logged(client, new_lab):
+    key_id = _enroll(client, new_lab).json()["id"]
+    _revoke(client, new_lab, key_id)
+    with client.app.state.engine.connect() as conn:
+        rows = conn.execute(
+            select(security_events.c.event_type, security_events.c.key_id).where(security_events.c.event_type == "key_revoked")
+        ).all()
+    assert rows == [("key_revoked", key_id)]

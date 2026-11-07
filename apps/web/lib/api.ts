@@ -123,3 +123,10 @@ export async function authenticate(
     body: JSON.stringify({ challenge_id: input.challengeId, key_id: input.keyId, signature: input.signature }),
   });
 }
+
+export async function revokeKey(session: LabSession, keyId: string): Promise<DigitalKey> {
+  return request<DigitalKey>(`/api/labs/${session.labId}/keys/${encodeURIComponent(keyId)}/revoke`, {
+    method: "POST",
+    session,
+  });
+}

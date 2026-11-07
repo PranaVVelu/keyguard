@@ -3,9 +3,10 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 3. Authenticated unlock and lock work end to end.** The browser enrolls a non-extractable key,
-signs a server challenge, and the backend verifies and decides. All 11 rows of the spec's mandatory test matrix
-pass through the real API.
+**Status: Sprint 4: core test suite passing.** The browser enrolls a non-extractable key and signs a server
+challenge, and the backend verifies and decides. Credentials can be revoked. All 11 rows of the spec's mandatory
+test matrix pass through the real API, and a structured runner records the evidence on every CI run
+([latest](docs/evidence/matrix-latest.md)).
 See [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md) for exactly what is and isn't proven.
 
 ## Layout
@@ -30,6 +31,7 @@ Requires [uv](https://docs.astral.sh/uv/) (it provides Python 3.12) and Node 24+
 cd services/api
 uv sync --python 3.12
 uv run pytest
+uv run python -m app.evidence.matrix   # structured security matrix (spec §7)
 uv run uvicorn app.main:create_app --factory --reload --port 8000
 ```
 
@@ -48,11 +50,12 @@ npm run dev          # http://localhost:3000
 | GET | `/api/labs/{id}/vehicles` | Requires `Authorization: Bearer <lab_token>`. Any failure returns `404 LAB_NOT_FOUND`. |
 | POST | `/api/labs/{id}/keys` | Enroll a P-256 SPKI public key for a vehicle in this lab |
 | GET | `/api/labs/{id}/keys` | List key metadata (fingerprint, status; never the key bytes) |
+| POST | `/api/labs/{id}/keys/{keyId}/revoke` | Revoke a credential (immediate; idempotent) |
 | POST | `/api/labs/{id}/challenges` | Issue a 30-second single-use challenge for (vehicle, key, action) |
 | POST | `/api/labs/{id}/authenticate` | Verify a signed challenge; returns allow/deny with a reason and a 6-step trace |
 | GET | `/api/health` | Liveness check |
 
-Not implemented yet: revoke (Sprint 4), events API, attack-lab scenarios.
+Not implemented yet: events API, attack-lab scenarios (Sprint 5).
 
 ## Docs
 

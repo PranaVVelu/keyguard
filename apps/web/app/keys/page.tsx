@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { LabMeta, StartLab } from "@/components/LabBar";
-import { ApiError, enrollKey, getVehicles, listKeys, type DigitalKey, type Vehicle } from "@/lib/api";
+import { ApiError, enrollKey, getVehicles, listKeys, revokeKey, type DigitalKey, type Vehicle } from "@/lib/api";
 import { exportPublicKey, generateDeviceKey, publicKeyFingerprint } from "@/lib/crypto";
 import { listKeysForLab, saveKey } from "@/lib/keystore";
 import { useLab } from "@/lib/use-lab";
@@ -19,6 +19,7 @@ export default function KeysPage() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!session) return;
@@ -79,6 +80,25 @@ export default function KeysPage() {
       const msg = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
       push({ label: "Enrollment failed: key discarded", detail: msg, state: "failed" });
       setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRevoke = async (keyId: string) => {
+    if (!session) return;
+    if (confirming !== keyId) {
+      setConfirming(keyId);
+      return;
+    }
+    setConfirming(null);
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeKey(session, keyId);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e));
     } finally {
       setBusy(false);
     }
@@ -189,14 +209,29 @@ export default function KeysPage() {
                         <dd className="inline">{localKeyIds.has(k.id) ? "in this browser" : "not in this browser"}</dd>
                       </div>
                     </dl>
-                    <button
-                      type="button"
-                      disabled
-                      title="Revocation arrives in Sprint 4"
-                      className="mt-4 rounded-md border border-line px-3 py-1.5 text-xs text-muted disabled:cursor-not-allowed"
-                    >
-                      Revoke (Sprint 4)
-                    </button>
+{k.status === "active" ? (
+                      <div className="mt-4 flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => onRevoke(k.id)}
+                          disabled={busy}
+                          className={`rounded-md border px-3 py-1.5 text-xs disabled:opacity-60 ${
+                            confirming === k.id ? "border-deny text-deny" : "border-line text-muted hover:text-fg"
+                          }`}
+                        >
+                          {confirming === k.id ? "Confirm revoke" : "Revoke"}
+                        </button>
+                        {confirming === k.id && (
+                          <button type="button" onClick={() => setConfirming(null)} className="text-xs text-muted hover:text-fg">
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="mt-4 font-mono text-xs text-deny">
+                        revoked {k.revoked_at ? new Date(k.revoked_at * 1000).toLocaleString() : ""}: can no longer authenticate
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
