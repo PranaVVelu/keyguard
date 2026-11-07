@@ -109,11 +109,19 @@ No sequential integers are exposed via the API.
 
 ---
 
-## D-005 Vulnerable verifier isolation — PROPOSED (implemented Sprint 5)
+## D-005 Vulnerable verifier isolation — ACCEPTED (implemented Sprint 5, 2026-11-06)
 
-The vulnerable verifier lives in `services/api/app/lab/vulnerable/` and works on its own in-memory or
-scenario-scoped tables. A test enforces that nothing under `app/security/` or `app/routes/` imports
-`app.lab.vulnerable` (an AST import scan in pytest).
+As built:
+- `app/lab/vulnerable/verifier.py` is in-memory only. It verifies real signatures but never consumes challenges
+  or checks expiry.
+- `app/lab/scenarios.py` runs each scenario twice on **disposable** state: the vulnerable verifier in memory, and the
+  **real** hardened engine against a temporary SQLite file that's deleted afterwards. The caller's lab DB only gets
+  the `lab_runs` summary rows.
+- `tests/test_lab_isolation.py` builds a static import graph and enforces:
+  - nothing in `app.security.*` or the auth/keys/labs routes reaches `app.lab` transitively;
+  - only `app.routes.lab` imports `app.lab`, and only via `app.lab.scenarios`;
+  - the vulnerable package imports no DB layer.
+- Scope: replay only (F05, P0). Tampering scenarios are F09 (P1) and wait until all P0 features are done (spec scope rule).
 
 ---
 

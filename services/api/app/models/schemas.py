@@ -105,3 +105,59 @@ class DecisionOut(_Strict):
     lock_state: Literal["locked", "unlocked"] | None
     duration_ms: int
     trace: list[TraceStepOut]
+
+
+class ScenarioStep(_Strict):
+    n: int
+    actor: Literal["owner", "attacker"]
+    label: str
+    decision: Literal["allow", "deny"]
+    reason: str | None
+    lock_state: Literal["locked", "unlocked"] | None
+
+
+class ScenarioModeRun(_Strict):
+    mode: Literal["vulnerable", "hardened"]
+    steps: list[ScenarioStep]
+    final_lock_state: Literal["locked", "unlocked"] | None
+    attack_decision: Literal["allow", "deny"]
+    attack_reason: str | None
+
+
+class ScenarioResult(_Strict):
+    run_id: str
+    scenario: str
+    title: str
+    description: str
+    expected: dict[str, str]
+    actual: dict[str, str]
+    matches_expected: bool
+    runs: list[ScenarioModeRun]
+    duration_ms: int
+    created_at: int
+
+
+class ScenarioSummary(_Strict):
+    id: str
+    title: str
+    description: str
+    expected: dict[str, str]
+
+
+class ScenarioCatalog(_Strict):
+    scenarios: list[ScenarioSummary]
+
+
+class LabRun(_Strict):
+    run_id: str
+    scenario: str
+    mode: Literal["vulnerable", "hardened"]
+    expected_result: str
+    actual_result: str
+    actual_reason: str | None
+    duration_ms: int | None
+    created_at: int
+
+
+class LabRunList(_Strict):
+    runs: list[LabRun]
