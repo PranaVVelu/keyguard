@@ -1,8 +1,10 @@
 // Client half of kg-auth-v1: request a challenge, check it is the one we asked for, sign it, submit.
 // The UI shows only the server's Decision; nothing here decides whether the vehicle unlocked.
 
-import type { Action, Challenge } from "./api.ts";
+import { authenticate, issueChallenge, type Action, type Challenge, type Decision } from "./api.ts";
+import { signMessage } from "./crypto.ts";
 import { encodeSignedMessage, PROTOCOL_VERSION } from "./encoding.ts";
+import type { LabSession } from "./lab-session.ts";
 
 export interface ActionRequest {
   vehicleId: string;
@@ -48,4 +50,56 @@ export function signedMessageFor(req: ActionRequest, chl: Challenge): Uint8Array
     action: chl.action,
     expiresAt: chl.expires_at,
   });
+}
+
+// --- Full client flow, reporting each stage (used by the Garage and the Inspector) ---------------
+
+
+export interface FlowArtifacts {
+  request: ActionRequest;
+  challenge?: Challenge;
+  message?: Uint8Array<ArrayBuffer>;
+  signature?: string;
+  decision?: Decision;
+  timings: Partial<Record<FlowStage, number>>; // ms spent in each stage, measured in the browser
+}
+
+export type FlowStage = "challenge" | "check" | "sign" | "verify";
+
+/**
+ * challenge → check → sign → verify. `onStage` fires after each stage with everything gathered so far,
+ * so the UI can render real artifacts as they arrive. Throws ApiError or ClientRefusal on failure;
+ * by then the artifacts gathered so far have already been reported.
+ */
+export async function performAction(
+  session: LabSession,
+  req: ActionRequest,
+  privateKey: CryptoKey,
+  onStage: (stage: FlowStage, a: FlowArtifacts) => void = () => {},
+): Promise<FlowArtifacts> {
+  const a: FlowArtifacts = { request: req, timings: {} };
+  const timed = async <T>(stage: FlowStage, fn: () => Promise<T> | T): Promise<T> => {
+    const t0 = performance.now();
+    const out = await fn();
+    a.timings[stage] = Math.round(performance.now() - t0);
+    return out;
+  };
+
+  a.challenge = await timed("challenge", () => issueChallenge(session, req));
+  onStage("challenge", a);
+  a.message = await timed("check", () => signedMessageFor(req, a.challenge!));
+  onStage("check", a);
+  a.signature = await timed("sign", () => signMessage(privateKey, a.message!));
+  onStage("sign", a);
+  a.decision = await timed("verify", () =>
+    authenticate(session, { challengeId: a.challenge!.challenge_id, keyId: req.keyId, signature: a.signature! }),
+  );
+  onStage("verify", a);
+  return a;
+}
+
+/** Resubmit an already-used signed response unchanged (replay demo). The server must refuse it. */
+export async function replay(session: LabSession, a: FlowArtifacts): Promise<Decision> {
+  if (!a.challenge || !a.signature) throw new ClientRefusal("NOTHING_TO_REPLAY", "No completed exchange to replay");
+  return authenticate(session, { challengeId: a.challenge.challenge_id, keyId: a.request.keyId, signature: a.signature });
 }
