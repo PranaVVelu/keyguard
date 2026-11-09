@@ -1,7 +1,7 @@
 # Security Test Evidence
 
-Last run: 2026-11-06 (Sprint 4), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
-**Backend: 156 passed, 0 failed** (`cd services/api && uv run pytest -v`).
+Last run: 2026-11-06 (Sprint 5), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
+**Backend: 172 passed, 0 failed** (`cd services/api && uv run pytest -v`).
 **Web: 35 passed, 0 failed** (`cd apps/web && npm test`).
 **Structured matrix: 11/11 pass**: [`docs/evidence/matrix-latest.md`](evidence/matrix-latest.md) (JSON alongside).
 
@@ -108,6 +108,24 @@ Enrolled "Phone A" and "Phone B" in the UI → requested an unlock challenge for
 (two-step confirm) → signed that earlier challenge with Phone A's still-present private key (a valid signature) →
 **deny `KEY_REVOKED`** (trace fails at `key_active_and_bound`), vehicle stayed `locked` → a new challenge for Phone A →
 **403 `KEY_REVOKED`** → Garage offers only Phone B → unlock **ALLOWED**.
+
+## Sprint 5: Attack Lab (F05) and isolation (T13)
+
+| Property | Evidence |
+|----------|----------|
+| Replay: vulnerable verifier **accepts**, hardened engine **rejects** (`CHALLENGE_CONSUMED`) | `test_replay_vulnerable_accepts_and_hardened_rejects` |
+| Reproducible across runs | `test_replay_comparison_is_reproducible[0-4]` |
+| Scenarios don't touch the lab's real vehicles, keys, challenges or labs table | `test_scenario_does_not_touch_the_labs_real_state` |
+| Each run records one `lab_runs` row per mode (expected vs actual) | `test_runs_are_recorded_per_mode` |
+| Vulnerable verifier still rejects forged signatures (it's replayable, not a no-op) | `test_vulnerable_verifier_still_checks_signatures` |
+| **The hardened path can't import `app.lab`** (static AST import graph, transitive) | `test_lab_isolation.py`: 4 tests |
+
+Isolation mutation check: planting `from app.lab.vulnerable.verifier import …` in `app/security/authenticate.py`
+made two isolation tests fail, and planting `import sqlalchemy` in the vulnerable verifier made the
+database-reach test fail. Both were reverted.
+
+Manual check in Chromium: Attack Lab → Run "Replay a captured unlock" → vulnerable **REPLAY ACCEPTED, car UNLOCKED**;
+hardened **REPLAY REJECTED · CHALLENGE_CONSUMED, car stays LOCKED**; results match expectations; history shows both rows.
 
 ## Known gaps
 

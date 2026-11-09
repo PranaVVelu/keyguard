@@ -83,3 +83,18 @@ security_events = Table(
     Column("duration_ms", Integer),
     Column("created_at", Integer, nullable=False),
 )
+
+lab_runs = Table(
+    "lab_runs",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("lab_id", String, ForeignKey("labs.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("scenario", String, nullable=False),
+    Column("mode", String, nullable=False),
+    Column("expected_result", String, nullable=False),
+    Column("actual_result", String, nullable=False),
+    Column("actual_reason", String),
+    Column("duration_ms", Integer),
+    Column("created_at", Integer, nullable=False),
+    CheckConstraint("mode IN ('vulnerable', 'hardened')", name="ck_lab_run_mode"),
+)

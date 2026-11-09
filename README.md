@@ -3,10 +3,11 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 4: core test suite passing.** The browser enrolls a non-extractable key and signs a server
+**Status: Sprint 5: Attack Lab.** The browser enrolls a non-extractable key and signs a server
 challenge, and the backend verifies and decides. Credentials can be revoked. All 11 rows of the spec's mandatory
 test matrix pass through the real API, and a structured runner records the evidence on every CI run
-([latest](docs/evidence/matrix-latest.md)).
+([latest](docs/evidence/matrix-latest.md)). The Attack Lab runs a replay against an isolated, deliberately
+vulnerable verifier and the real engine side by side.
 See [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md) for exactly what is and isn't proven.
 
 ## Layout
@@ -53,9 +54,12 @@ npm run dev          # http://localhost:3000
 | POST | `/api/labs/{id}/keys/{keyId}/revoke` | Revoke a credential (immediate; idempotent) |
 | POST | `/api/labs/{id}/challenges` | Issue a 30-second single-use challenge for (vehicle, key, action) |
 | POST | `/api/labs/{id}/authenticate` | Verify a signed challenge; returns allow/deny with a reason and a 6-step trace |
+| GET | `/api/labs/{id}/scenarios` | List Attack Lab scenarios |
+| POST | `/api/labs/{id}/scenarios/{scenario}` | Run vulnerable vs hardened on disposable state |
+| GET | `/api/labs/{id}/lab-runs` | Scenario run history (expected vs actual per mode) |
 | GET | `/api/health` | Liveness check |
 
-Not implemented yet: events API, attack-lab scenarios (Sprint 5).
+Not implemented yet: events API and analytics (Sprint 7), protocol inspector page (Sprint 6).
 
 ## Docs
 

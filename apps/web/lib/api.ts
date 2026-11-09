@@ -130,3 +130,65 @@ export async function revokeKey(session: LabSession, keyId: string): Promise<Dig
     session,
   });
 }
+
+export type LabMode = "vulnerable" | "hardened";
+
+export interface ScenarioStep {
+  n: number;
+  actor: "owner" | "attacker";
+  label: string;
+  decision: "allow" | "deny";
+  reason: string | null;
+  lock_state: "locked" | "unlocked" | null;
+}
+
+export interface ScenarioModeRun {
+  mode: LabMode;
+  steps: ScenarioStep[];
+  final_lock_state: "locked" | "unlocked" | null;
+  attack_decision: "allow" | "deny";
+  attack_reason: string | null;
+}
+
+export interface ScenarioSummary {
+  id: string;
+  title: string;
+  description: string;
+  expected: Record<LabMode, "allow" | "deny">;
+}
+
+export interface ScenarioResult extends ScenarioSummary {
+  run_id: string;
+  scenario: string;
+  actual: Record<LabMode, "allow" | "deny">;
+  matches_expected: boolean;
+  runs: ScenarioModeRun[];
+  duration_ms: number;
+  created_at: number;
+}
+
+export interface LabRun {
+  run_id: string;
+  scenario: string;
+  mode: LabMode;
+  expected_result: string;
+  actual_result: string;
+  actual_reason: string | null;
+  duration_ms: number | null;
+  created_at: number;
+}
+
+export async function listScenarios(session: LabSession): Promise<ScenarioSummary[]> {
+  return (await request<{ scenarios: ScenarioSummary[] }>(`/api/labs/${session.labId}/scenarios`, { session })).scenarios;
+}
+
+export async function runScenario(session: LabSession, scenario: string): Promise<ScenarioResult> {
+  return request<ScenarioResult>(`/api/labs/${session.labId}/scenarios/${encodeURIComponent(scenario)}`, {
+    method: "POST",
+    session,
+  });
+}
+
+export async function listLabRuns(session: LabSession): Promise<LabRun[]> {
+  return (await request<{ runs: LabRun[] }>(`/api/labs/${session.labId}/lab-runs`, { session })).runs;
+}
