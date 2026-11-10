@@ -216,6 +216,29 @@ their own stored challenge, so both deny both edits and the car stays locked.
 Mutation check: with the vulnerable verifier's signature check disabled (`if not ok:` → `if False:`), all 9 tamper
 tests and `test_vulnerable_verifier_still_checks_signatures` **failed**. Reverted (no diff).
 
+## Attack Lab substitute scenario (client-supplied signed bytes)
+
+The owner unlocks (the attacker captures the signed message and its signature), then locks. Replaying the capture on
+its own challenge fails in both verifiers (`CHALLENGE_CONSUMED`). When the owner later requests a lock challenge C2,
+the attacker answers it first with C2's ID plus the old unlock bytes and signature. `ClientBytesVerifier`
+(`app/lab/vulnerable/client_bytes.py`) enforces single use but verifies the signature over the client's bytes and acts
+on their `unlock` action, so it unlocks the car. The hardened engine rebuilds the bytes from C2's row and denies.
+
+| Property | Evidence |
+|----------|----------|
+| Vulnerable **allows** the substitution and the car ends `unlocked`; hardened **denies `SIGNATURE_INVALID`** and the car stays `locked`; the plain replay is `CHALLENGE_CONSUMED` in both | `test_substitute_vulnerable_unlocks_and_hardened_denies_signature_invalid` |
+| Reproducible across runs | `test_substitute_comparison_is_reproducible[0-4]` |
+| Why: the old bytes name the old challenge ID and `unlock`; the signature fails over the bytes rebuilt from C2, yet the client-bytes verifier accepts it | `test_substituted_bytes_name_another_challenge_but_still_verify_in_the_vulnerable_verifier` |
+| The vulnerable verifier is single use and still rejects forged signatures (the only bug is whose bytes it checks) | `test_client_bytes_verifier_enforces_single_use_and_checks_signatures` |
+| Same attack on the production HTTP API: `SIGNATURE_INVALID`, car `locked`; a `signed_message` field is refused `422 REQUEST_INVALID` | `test_substitution_through_the_real_api_is_denied_and_signed_bytes_are_not_accepted` |
+| Malformed kg-auth-v1 framing (no tag, truncated, trailing bytes) is rejected by the lab parser | `test_parse_signed_message_rejects_malformed_framing[*]` |
+| One `lab_runs` row per mode; the lab's real state is untouched; the vulnerable module imports no DB layer and is unreachable from the hardened path | `test_substitute_runs_are_recorded_per_mode`, `test_scenario_does_not_touch_the_labs_real_state[substitute]`, `test_lab_isolation.py` |
+| Real UI: vulnerable column shows **SUBSTITUTED MESSAGE ACCEPTED: car is UNLOCKED**, hardened shows **SUBSTITUTED MESSAGE REJECTED · SIGNATURE_INVALID: car stays LOCKED** | `journey.spec.ts` › owner journey |
+
+Mutation check: with `ClientBytesVerifier` changed to verify over `encode_signed_message(issued.fields)` (the
+hardened behaviour), 8 substitute tests **failed** (the scenario, its 5 reproducibility runs, the run-history test and
+the root-cause test). Reverted (no diff).
+
 ## Known gaps
 
 - Usability sessions with real participants (spec §11 targets) have not been run; see `USABILITY.md`.

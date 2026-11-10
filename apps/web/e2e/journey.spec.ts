@@ -23,7 +23,7 @@ async function enroll(page: Page, label: string) {
   await expect(card.getByText("in this browser")).toBeVisible();
 }
 
-test("owner journey: enroll, unlock, replay blocked, attack lab (replay + tamper), revoke, analytics", async ({ page }) => {
+test("owner journey: enroll, unlock, replay blocked, attack lab (replay + tamper + substitute), revoke, analytics", async ({ page }) => {
   await startLab(page);
   await enroll(page, "Phone A");
 
@@ -80,6 +80,22 @@ test("owner journey: enroll, unlock, replay blocked, attack lab (replay + tamper
     ).toBeVisible();
   }
   await expect(page.getByRole("cell", { name: "deny · SIGNATURE_INVALID" })).toHaveCount(2);
+
+  // Substitute: old unlock bytes + signature attached to a fresh lock challenge. The verifier that checks the
+  // client's bytes unlocks the car; the real engine rebuilds the bytes from the challenge row and denies.
+  await page.getByRole("button", { name: "Run scenario: Substitute old signed bytes on a fresh challenge" }).click();
+  await expect(
+    page.getByRole("heading", { name: /Substitute old signed bytes on a fresh challenge: results match expectations/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Vulnerable verifier" }).getByText("SUBSTITUTED MESSAGE ACCEPTED: car is UNLOCKED"),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Hardened verifier" })
+      .getByText("SUBSTITUTED MESSAGE REJECTED · SIGNATURE_INVALID: car stays LOCKED"),
+  ).toBeVisible();
+  await expect(page.getByRole("cell", { name: "deny · SIGNATURE_INVALID" })).toHaveCount(3);
 
   // Revoke (two-step) and confirm the Garage no longer offers the key.
   await nav(page, "Digital Keys");

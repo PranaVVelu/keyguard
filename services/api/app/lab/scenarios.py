@@ -1,7 +1,8 @@
 """Attack Lab scenarios: vulnerable vs hardened, side by side, on disposable state (spec F05, F09, D-005).
 
 Each run builds fresh, throwaway state for BOTH modes:
-  * vulnerable: app.lab.vulnerable.VulnerableVerifier (in memory)
+  * vulnerable: an in-memory verifier from app.lab.vulnerable (VulnerableVerifier, or ClientBytesVerifier
+                for the substitute scenario)
   * hardened:   the real production engine (app.security.authenticate) against a temporary
                 SQLite database that is deleted afterwards
 The caller's lab database is never read or modified by a scenario. Only the summary row in
@@ -12,11 +13,14 @@ from __future__ import annotations
 
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from app.db import make_engine
 from app.evidence.client_sim import SimulatedClientKey
+from app.lab.vulnerable.client_bytes import ClientBytesVerifier
 from app.lab.vulnerable.verifier import VulnerableVerifier
 from app.security.authenticate import authenticate
 from app.security.challenges import issue_challenge
@@ -93,6 +97,29 @@ SCENARIOS: dict[str, ScenarioInfo] = {
             "Neither verifier reads the action or nonce from the request: each rebuilds the kg-auth-v1 bytes from "
             "the challenge it issued and stored. A signature over a lock can't authorise an unlock, and a flipped "
             "byte breaks the ECDSA check, so tampering fails even in the replayable verifier."
+        ),
+    ),
+    "substitute": ScenarioInfo(
+        id="substitute",
+        title="Substitute old signed bytes on a fresh challenge",
+        description=(
+            "The attacker captured the owner's earlier unlock: the signed message and its signature. Replaying it "
+            "on its own challenge fails, because challenges are single use. So when the owner later asks for a lock "
+            "challenge, the attacker answers it first with that challenge's ID plus the old unlock bytes and "
+            "signature. A verifier that checks the signature over the bytes the client sends, and acts on the "
+            "action inside them, unlocks the car."
+        ),
+        expected={"vulnerable": "allow", "hardened": "deny"},
+        attack_label="Substituted message",
+        mode_notes={
+            "vulnerable": "Single use, but verifies the client's signed bytes and acts on their action",
+            "hardened": "Production engine: ignores client bytes and rebuilds them from the challenge row",
+        },
+        takeaway=(
+            "Single use alone isn't enough. The signature is genuine, but over an old unlock message, not over the "
+            "lock challenge being consumed. The hardened engine never accepts signed bytes from the client: it "
+            "rebuilds them from the stored challenge (its ID, nonce, action and expiry), so the old signature fails "
+            "with SIGNATURE_INVALID."
         ),
     ),
 }
@@ -247,9 +274,101 @@ def _tamper_hardened(now: int) -> ModeRun:
     return run
 
 
+_SUBSTITUTE_LABELS = (
+    "Owner unlocks (signed message and signature captured by attacker)",
+    "Owner locks and walks away",
+    "Attacker replays the captured unlock on its own challenge",
+    "Owner requests a new lock challenge; attacker answers it first with the old unlock bytes and signature",
+)
+
+
+def _substitute_vulnerable(now: int) -> ModeRun:
+    run = ModeRun("vulnerable")
+    v = ClientBytesVerifier()
+    key = SimulatedClientKey()
+    vehicle_id, key_id = "veh_" + "V" * 22, "key_" + "V" * 22
+
+    def issue(action: str) -> SignedFields:
+        return v.issue(vehicle_id=vehicle_id, key_id=key_id, spki_b64url=key.spki_b64url, action=action, now=now)
+
+    def respond(f: SignedFields) -> tuple[str, str]:
+        """What a client sends to this verifier: the signed bytes and the signature over them."""
+        return b64url_encode(encode_signed_message(f)), _sign(key, f)
+
+    unlock = issue("unlock")
+    captured_msg, captured_sig = respond(unlock)
+    d, r = v.verify(challenge_id=unlock.challenge_id, signed_message=captured_msg, signature=captured_sig)
+    run.steps.append(Step(1, "owner", _SUBSTITUTE_LABELS[0], d, r, v.lock_state))
+
+    lock = issue("lock")
+    lock_msg, lock_sig = respond(lock)
+    d, r = v.verify(challenge_id=lock.challenge_id, signed_message=lock_msg, signature=lock_sig)
+    run.steps.append(Step(2, "owner", _SUBSTITUTE_LABELS[1], d, r, v.lock_state))
+
+    d, r = v.verify(challenge_id=unlock.challenge_id, signed_message=captured_msg, signature=captured_sig)
+    run.steps.append(Step(3, "attacker", _SUBSTITUTE_LABELS[2], d, r, v.lock_state))
+
+    fresh_lock = issue("lock")
+    d, r = v.verify(challenge_id=fresh_lock.challenge_id, signed_message=captured_msg, signature=captured_sig)
+    run.steps.append(Step(4, "attacker", _SUBSTITUTE_LABELS[3], d, r, v.lock_state))
+    _attack_outcome(run)
+    return run
+
+
+@contextmanager
+def _hardened_sandbox(now: int) -> Iterator[tuple]:
+    """A throwaway SQLite lab with one enrolled owner key; yields (key, issue, submit) bound to it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        engine = make_engine(f"sqlite:///{Path(tmp) / 'scenario.db'}")
+        try:
+            key = SimulatedClientKey()
+            with engine.begin() as conn:
+                lab = create_lab(conn, now=now)
+                key_id = enroll_key(
+                    conn, lab_id=lab.lab_id, vehicle_id=lab.vehicle_id, spki_b64url=key.spki_b64url, label="owner", now=now
+                )
+
+            def issue(action: str) -> SignedFields:
+                with engine.begin() as conn:
+                    c = issue_challenge(conn, lab_id=lab.lab_id, vehicle_id=lab.vehicle_id, key_id=key_id, action=action, now=now)
+                return c.signed_fields()
+
+            def submit(chl_id: str, sig: str):
+                return authenticate(engine, lab_id=lab.lab_id, challenge_id=chl_id, key_id=key_id, signature=sig, clock=lambda: now)
+
+            yield key, issue, submit
+        finally:
+            engine.dispose()
+
+
+def _substitute_hardened(now: int) -> ModeRun:
+    run = ModeRun("hardened")
+    with _hardened_sandbox(now) as (key, issue, submit):
+        unlock = issue("unlock")
+        # The attacker captures the same pair as in the vulnerable run. The production API has no field for
+        # signed bytes, so only the signature travels; the engine rebuilds the message from the challenge row.
+        captured_sig = _sign(key, unlock)
+        d = submit(unlock.challenge_id, captured_sig)
+        run.steps.append(Step(1, "owner", _SUBSTITUTE_LABELS[0], d.decision, d.reason, d.lock_state))
+
+        lock = issue("lock")
+        d = submit(lock.challenge_id, _sign(key, lock))
+        run.steps.append(Step(2, "owner", _SUBSTITUTE_LABELS[1], d.decision, d.reason, d.lock_state))
+
+        d = submit(unlock.challenge_id, captured_sig)
+        run.steps.append(Step(3, "attacker", _SUBSTITUTE_LABELS[2], d.decision, d.reason, d.lock_state))
+
+        fresh_lock = issue("lock")
+        d = submit(fresh_lock.challenge_id, captured_sig)
+        run.steps.append(Step(4, "attacker", _SUBSTITUTE_LABELS[3], d.decision, d.reason, d.lock_state))
+        _attack_outcome(run)
+    return run
+
+
 _RUNNERS = {
     "replay": (_replay_vulnerable, _replay_hardened),
     "tamper": (_tamper_vulnerable, _tamper_hardened),
+    "substitute": (_substitute_vulnerable, _substitute_hardened),
 }
 
 

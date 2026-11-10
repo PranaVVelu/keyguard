@@ -1,4 +1,4 @@
-"""Attack Lab (F05, F09): reproducible vulnerable-vs-hardened replay and tamper comparisons on disposable state."""
+"""Attack Lab (F05, F09): reproducible vulnerable-vs-hardened replay, tamper and substitute comparisons on disposable state."""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ import pytest
 from sqlalchemy import func, select
 
 from app.lab.scenarios import SCENARIOS, _flip_last_byte, run_scenario
+from app.lab.vulnerable.client_bytes import ClientBytesVerifier, parse_signed_message
 from app.lab.vulnerable.verifier import VulnerableVerifier
+from app.security.encoding import b64url_encode
 from app.models.tables import challenges, digital_keys, labs, vehicles
-from app.security.protocol import encode_signed_message, load_public_key, verify_signature
+from app.security.protocol import SignedFields, encode_signed_message, load_public_key, verify_signature
 from helpers import SimulatedClientKey
 
 
@@ -68,11 +70,12 @@ def test_runs_are_recorded_per_mode(client, new_lab):
     assert mine == [("hardened", "deny", "deny", "CHALLENGE_CONSUMED"), ("vulnerable", "allow", "allow", None)]
 
 
-def test_catalog_lists_replay_and_tamper(client, new_lab):
+def test_catalog_lists_every_scenario(client, new_lab):
     cat = client.get(f"/api/labs/{new_lab['lab_id']}/scenarios", headers=new_lab["headers"]).json()["scenarios"]
     assert [(s["id"], s["expected"]) for s in cat] == [
         ("replay", {"vulnerable": "allow", "hardened": "deny"}),
         ("tamper", {"vulnerable": "deny", "hardened": "deny"}),
+        ("substitute", {"vulnerable": "allow", "hardened": "deny"}),
     ]
     for s in cat:  # the UI renders these instead of hard-coded replay copy
         assert s["attack_label"] and s["takeaway"]
@@ -165,3 +168,145 @@ def test_flipped_signature_byte_is_invalid_not_malformed():
     assert tampered != sig and len(tampered) == len(sig)
     assert v.verify(challenge_id=f.challenge_id, signature=tampered) == ("deny", "SIGNATURE_INVALID")
     assert v.verify(challenge_id=f.challenge_id, signature=sig) == ("allow", None)  # the untouched one still verifies
+
+
+# --- substitute: verifying client-supplied signed bytes -----------------------------------------
+
+
+def test_substitute_vulnerable_unlocks_and_hardened_denies_signature_invalid(client, new_lab):
+    body = _run(client, new_lab, scenario="substitute").json()
+    assert body["expected"] == body["actual"] == {"vulnerable": "allow", "hardened": "deny"}
+    assert body["matches_expected"] is True
+    assert body["attack_label"] == "Substituted message"
+
+    runs = {r["mode"]: r for r in body["runs"]}
+    common = [
+        ("owner", "allow", None, "unlocked"),  # the captured unlock is genuine
+        ("owner", "allow", None, "locked"),
+        ("attacker", "deny", "CHALLENGE_CONSUMED", "locked"),  # both verifiers enforce single use
+    ]
+    steps = {m: [(s["actor"], s["decision"], s["reason"], s["lock_state"]) for s in r["steps"]] for m, r in runs.items()}
+    assert steps["vulnerable"] == [*common, ("attacker", "allow", None, "unlocked")]
+    assert steps["hardened"] == [*common, ("attacker", "deny", "SIGNATURE_INVALID", "locked")]
+    assert (runs["vulnerable"]["attack_decision"], runs["vulnerable"]["final_lock_state"]) == ("allow", "unlocked")
+    hard = runs["hardened"]
+    assert (hard["attack_decision"], hard["attack_reason"], hard["final_lock_state"]) == ("deny", "SIGNATURE_INVALID", "locked")
+
+
+@pytest.mark.parametrize("i", range(5))
+def test_substitute_comparison_is_reproducible(i):
+    r = run_scenario("substitute", now=1_793_923_200 + i)
+    assert r["actual"] == {"vulnerable": "allow", "hardened": "deny"}
+
+
+def test_substitute_runs_are_recorded_per_mode(client, new_lab):
+    run_id = _run(client, new_lab, scenario="substitute").json()["run_id"]
+    runs = client.get(f"/api/labs/{new_lab['lab_id']}/lab-runs", headers=new_lab["headers"]).json()["runs"]
+    mine = sorted((r["scenario"], r["mode"], r["expected_result"], r["actual_result"], r["actual_reason"]) for r in runs if r["run_id"] == run_id)
+    assert mine == [
+        ("substitute", "hardened", "deny", "deny", "SIGNATURE_INVALID"),
+        ("substitute", "vulnerable", "allow", "allow", None),
+    ]
+
+
+def _client_bytes_setup():
+    v, owner = ClientBytesVerifier(), SimulatedClientKey()
+    ids = {"vehicle_id": "veh_" + "A" * 22, "key_id": "key_" + "A" * 22, "spki_b64url": owner.spki_b64url, "now": 0}
+
+    def respond(f):
+        msg = encode_signed_message(f)
+        return {"signed_message": b64url_encode(msg), "signature": owner.sign_p1363(msg)}
+
+    return v, owner, ids, respond
+
+
+def test_client_bytes_verifier_enforces_single_use_and_checks_signatures():
+    """It's not a no-op: a second submission on the same challenge and a forged signature are both refused."""
+    v, _, ids, respond = _client_bytes_setup()
+    unlock = v.issue(action="unlock", **ids)
+    genuine = respond(unlock)
+    assert v.verify(challenge_id=unlock.challenge_id, **genuine) == ("allow", None)
+    assert v.verify(challenge_id=unlock.challenge_id, **genuine) == ("deny", "CHALLENGE_CONSUMED")
+
+    forger = SimulatedClientKey()
+    lock = v.issue(action="lock", **ids)
+    msg = encode_signed_message(lock)
+    forged = {"signed_message": b64url_encode(msg), "signature": forger.sign_p1363(msg)}
+    assert v.verify(challenge_id=lock.challenge_id, **forged) == ("deny", "SIGNATURE_INVALID")
+    assert v.lock_state == "unlocked"  # the forged lock did nothing
+
+
+def test_substituted_bytes_name_another_challenge_but_still_verify_in_the_vulnerable_verifier():
+    """The root cause: the signature is genuine over the OLD unlock bytes, which name the old challenge and action.
+    The vulnerable verifier checks those bytes; the hardened rebuild from the fresh lock challenge doesn't match."""
+    v, owner, ids, respond = _client_bytes_setup()
+    unlock = v.issue(action="unlock", **ids)
+    captured = respond(unlock)
+    assert v.verify(challenge_id=unlock.challenge_id, **captured) == ("allow", None)
+    lock = v.issue(action="lock", **ids)
+    assert v.verify(challenge_id=lock.challenge_id, **respond(lock)) == ("allow", None)
+
+    fresh_lock = v.issue(action="lock", **ids)
+    fields = parse_signed_message(encode_signed_message(unlock))
+    assert (fields[3], fields[5]) == (unlock.challenge_id, "unlock")  # not fresh_lock's ID, not "lock"
+
+    public_key, _ = load_public_key(owner.spki_b64url)
+    rebuilt = encode_signed_message(fresh_lock)  # what the hardened engine checks
+    assert verify_signature(public_key, rebuilt, captured["signature"]) is False
+
+    assert v.verify(challenge_id=fresh_lock.challenge_id, **captured) == ("allow", None)
+    assert v.lock_state == "unlocked"  # a lock challenge just unlocked the car
+
+
+@pytest.mark.parametrize(
+    "mangle",
+    [
+        lambda m: m[1:],  # no domain tag
+        lambda m: m[:-1],  # truncated
+        lambda m: m + b"\x00",  # trailing bytes
+    ],
+    ids=["no-tag", "truncated", "trailing"],
+)
+def test_parse_signed_message_rejects_malformed_framing(mangle):
+    v, _, ids, _ = _client_bytes_setup()
+    msg = encode_signed_message(v.issue(action="unlock", **ids))
+    assert len(parse_signed_message(msg)) == 7
+    with pytest.raises(Exception, match="MESSAGE_MALFORMED"):
+        parse_signed_message(mangle(msg))
+
+
+def test_substitution_through_the_real_api_is_denied_and_signed_bytes_are_not_accepted(client, new_lab):
+    """The same attack against the production HTTP API, outside the lab: the old unlock signature on a fresh lock
+    challenge is SIGNATURE_INVALID, and there is no way to send signed bytes (an extra field is a 422)."""
+    lab_id, headers, vehicle_id = new_lab["lab_id"], new_lab["headers"], new_lab["vehicle_id"]
+    owner = SimulatedClientKey()
+    key_id = client.post(
+        f"/api/labs/{lab_id}/keys", json={"vehicle_id": vehicle_id, "public_key": owner.spki_b64url, "label": "k"}, headers=headers
+    ).json()["id"]
+
+    def challenge(action):
+        chl = client.post(f"/api/labs/{lab_id}/challenges", json={"vehicle_id": vehicle_id, "key_id": key_id, "action": action}, headers=headers).json()
+        fields = {k: chl[k] for k in ("vehicle_id", "key_id", "challenge_id", "nonce", "action", "expires_at")}
+        return chl["challenge_id"], encode_signed_message(SignedFields(**fields))
+
+    def authenticate(**body):
+        return client.post(f"/api/labs/{lab_id}/authenticate", json={"key_id": key_id, **body}, headers=headers)
+
+    def lock_state():
+        vs = client.get(f"/api/labs/{lab_id}/vehicles", headers=headers).json()["vehicles"]
+        return next(v for v in vs if v["id"] == vehicle_id)["lock_state"]
+
+    unlock_id, unlock_msg = challenge("unlock")
+    captured_sig = owner.sign_p1363(unlock_msg)
+    assert authenticate(challenge_id=unlock_id, signature=captured_sig).json()["decision"] == "allow"
+    lock_id, lock_msg = challenge("lock")
+    assert authenticate(challenge_id=lock_id, signature=owner.sign_p1363(lock_msg)).json()["decision"] == "allow"
+
+    fresh_id, _ = challenge("lock")
+    with_bytes = authenticate(challenge_id=fresh_id, signature=captured_sig, signed_message=b64url_encode(unlock_msg))
+    assert with_bytes.status_code == 422
+    assert with_bytes.json()["error"]["code"] == "REQUEST_INVALID"
+
+    body = authenticate(challenge_id=fresh_id, signature=captured_sig).json()
+    assert (body["decision"], body["reason"]) == ("deny", "SIGNATURE_INVALID")
+    assert lock_state() == "locked"

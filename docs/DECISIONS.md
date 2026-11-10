@@ -125,6 +125,11 @@ As built:
 - 2026-11-09: added the `tamper` scenario (F09). Both verifiers are expected to deny with `SIGNATURE_INVALID`,
   because both rebuild the signed bytes from their stored challenge. Each scenario now carries its own
   `attack_label`, `mode_notes` and `takeaway`, so the UI no longer hard-codes replay copy.
+- 2026-11-09: added the `substitute` scenario. Its vulnerable side is a second class, `ClientBytesVerifier`
+  (`app/lab/vulnerable/client_bytes.py`), which enforces single use but verifies the signature over signed bytes the
+  client sends and acts on their action. Expected: vulnerable `allow`, hardened `deny · SIGNATURE_INVALID`. It shows
+  why D-001 rebuilds the bytes from the challenge row. The production `/authenticate` schema has no field for signed
+  bytes, and a test checks that sending one is a `422`.
 
 ---
 
