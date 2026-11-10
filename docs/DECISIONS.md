@@ -121,7 +121,10 @@ As built:
   - nothing in `app.security.*` or the auth/keys/labs routes reaches `app.lab` transitively;
   - only `app.routes.lab` imports `app.lab`, and only via `app.lab.scenarios`;
   - the vulnerable package imports no DB layer.
-- Scope: replay only (F05, P0). Tampering scenarios are F09 (P1) and wait until all P0 features are done (spec scope rule).
+- Scope (Sprint 5): replay only (F05, P0). Tampering scenarios are F09 (P1) and wait until all P0 features are done (spec scope rule).
+- 2026-11-09: added the `tamper` scenario (F09). Both verifiers are expected to deny with `SIGNATURE_INVALID`,
+  because both rebuild the signed bytes from their stored challenge. Each scenario now carries its own
+  `attack_label`, `mode_notes` and `takeaway`, so the UI no longer hard-codes replay copy.
 
 ---
 

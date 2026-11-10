@@ -23,7 +23,7 @@ async function enroll(page: Page, label: string) {
   await expect(card.getByText("in this browser")).toBeVisible();
 }
 
-test("owner journey: enroll, unlock, replay blocked, attack lab, revoke, analytics", async ({ page }) => {
+test("owner journey: enroll, unlock, replay blocked, attack lab (replay + tamper), revoke, analytics", async ({ page }) => {
   await startLab(page);
   await enroll(page, "Phone A");
 
@@ -66,9 +66,20 @@ test("owner journey: enroll, unlock, replay blocked, attack lab, revoke, analyti
 
   // Attack Lab: the isolated vulnerable verifier accepts the replay; the real engine rejects it.
   await nav(page, "Attack Lab");
-  await page.getByRole("button", { name: "Run scenario" }).click();
+  await page.getByRole("button", { name: "Run scenario: Replay a captured unlock" }).click();
   await expect(page.getByText(/REPLAY ACCEPTED/)).toBeVisible();
   await expect(page.getByText(/REPLAY REJECTED · CHALLENGE_CONSUMED/)).toBeVisible();
+
+  // Tamper (F09): an edited signed response fails in BOTH verifiers, because each rebuilds the signed bytes
+  // from its own stored challenge. The car stays locked and both history rows say SIGNATURE_INVALID.
+  await page.getByRole("button", { name: "Run scenario: Tamper with a signed response" }).click();
+  await expect(page.getByRole("heading", { name: /Tamper with a signed response: results match expectations/ })).toBeVisible();
+  for (const mode of ["Vulnerable verifier", "Hardened verifier"]) {
+    await expect(
+      page.getByRole("region", { name: mode }).getByText("TAMPERED RESPONSE REJECTED · SIGNATURE_INVALID: car stays LOCKED"),
+    ).toBeVisible();
+  }
+  await expect(page.getByRole("cell", { name: "deny · SIGNATURE_INVALID" })).toHaveCount(2);
 
   // Revoke (two-step) and confirm the Garage no longer offers the key.
   await nav(page, "Digital Keys");

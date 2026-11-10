@@ -198,6 +198,24 @@ Packaging: the CI `docker` job builds both images, waits for health checks, then
 lab is readable with its token and returns 404 without it. Docker isn't installed on the dev machine, so CI is the only
 place this runs.
 
+## F09: Attack Lab tamper scenario
+
+The owner locks; the attacker (a) staples that genuine lock signature onto a fresh unlock challenge, then
+(b) intercepts the owner's next unlock and flips one signature byte. Both verifiers rebuild the kg-auth-v1 bytes from
+their own stored challenge, so both deny both edits and the car stays locked.
+
+| Property | Evidence |
+|----------|----------|
+| Both verifiers deny both tampered submissions **`SIGNATURE_INVALID`**, car stays `locked`; the owner's genuine lock is allowed | `test_tamper_is_rejected_by_both_verifiers_with_signature_invalid` |
+| Reproducible across runs | `test_tamper_comparison_is_reproducible[0-4]` |
+| Why: the stapled signature verifies over the lock bytes but not over the unlock bytes the verifier rebuilds | `test_stapled_signature_is_genuine_but_bound_to_the_servers_bytes` |
+| A flipped byte is `INVALID` (not `MALFORMED`); the untouched signature still verifies | `test_flipped_signature_byte_is_invalid_not_malformed` |
+| One `lab_runs` row per mode; the lab's real state is untouched (parametrised over every scenario) | `test_tamper_runs_are_recorded_per_mode`, `test_scenario_does_not_touch_the_labs_real_state[tamper]` |
+| Real UI: both columns show **TAMPERED RESPONSE REJECTED · SIGNATURE_INVALID: car stays LOCKED** and history has two `deny · SIGNATURE_INVALID` rows | `journey.spec.ts` › owner journey |
+
+Mutation check: with the vulnerable verifier's signature check disabled (`if not ok:` → `if False:`), all 9 tamper
+tests and `test_vulnerable_verifier_still_checks_signatures` **failed**. Reverted (no diff).
+
 ## Known gaps
 
 - Usability sessions with real participants (spec §11 targets) have not been run; see `USABILITY.md`.

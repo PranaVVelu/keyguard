@@ -158,6 +158,12 @@ export interface ScenarioSummary {
   title: string;
   description: string;
   expected: Record<LabMode, "allow" | "deny">;
+  /** What the attacker submits, e.g. "Replay" or "Tampered response" (used in the outcome line). */
+  attack_label: string;
+  /** What each verifier does, in this scenario's terms. */
+  mode_notes: Record<LabMode, string>;
+  /** The lesson shown under a result. */
+  takeaway: string;
 }
 
 export interface ScenarioResult extends ScenarioSummary {

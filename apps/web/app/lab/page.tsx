@@ -15,24 +15,26 @@ import {
 } from "@/lib/api";
 import { useLab } from "@/lib/use-lab";
 
-const MODE_COPY = {
-  vulnerable: { title: "Vulnerable verifier", note: "Checks the signature but never marks challenges as used" },
-  hardened: { title: "Hardened verifier", note: "Production engine: atomic single-use challenges" },
+const MODE_TITLE = {
+  vulnerable: "Vulnerable verifier",
+  hardened: "Hardened verifier",
 } as const;
 
 function describe(e: unknown) {
   return e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
 }
 
-function ModeColumn({ run, expected }: { run: ScenarioModeRun; expected: string }) {
+function ModeColumn({ run, result }: { run: ScenarioModeRun; result: ScenarioResult }) {
+  const expected = result.expected[run.mode];
   const accepted = run.attack_decision === "allow";
   const asExpected = run.attack_decision === expected;
+  const attack = result.attack_label.toUpperCase();
   return (
-    <section aria-label={MODE_COPY[run.mode].title} className="rounded-lg border border-line bg-panel p-5">
+    <section aria-label={MODE_TITLE[run.mode]} className="rounded-lg border border-line bg-panel p-5">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-medium">{MODE_COPY[run.mode].title}</h3>
-          <p className="mt-0.5 text-xs text-muted">{MODE_COPY[run.mode].note}</p>
+          <h3 className="font-medium">{MODE_TITLE[run.mode]}</h3>
+          <p className="mt-0.5 text-xs text-muted">{result.mode_notes[run.mode]}</p>
         </div>
         <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs uppercase">{run.mode}</span>
       </header>
@@ -55,8 +57,8 @@ function ModeColumn({ run, expected }: { run: ScenarioModeRun; expected: string 
 
       <p className={`mt-5 border-t border-line pt-4 text-sm font-semibold ${accepted ? "text-deny" : "text-allow"}`}>
         {accepted
-          ? `REPLAY ACCEPTED: car is ${run.final_lock_state?.toUpperCase()}`
-          : `REPLAY REJECTED · ${run.attack_reason}: car stays ${run.final_lock_state?.toUpperCase()}`}
+          ? `${attack} ACCEPTED: car is ${run.final_lock_state?.toUpperCase()}`
+          : `${attack} REJECTED · ${run.attack_reason}: car stays ${run.final_lock_state?.toUpperCase()}`}
       </p>
       <p className="mt-1 font-mono text-xs text-muted">
         expected {expected} · observed {run.attack_decision} · {asExpected ? "as expected" : "UNEXPECTED"}
@@ -147,6 +149,7 @@ export default function AttackLabPage() {
                     type="button"
                     onClick={() => onRun(s.id)}
                     disabled={running !== null}
+                    aria-label={`Run scenario: ${s.title}`}
                     className="rounded-md bg-fg px-3 py-1.5 font-sans text-sm font-medium text-bg disabled:opacity-60"
                   >
                     {running === s.id ? "Running…" : "Run scenario"}
@@ -171,13 +174,10 @@ export default function AttackLabPage() {
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {result.runs.map((r) => (
-                  <ModeColumn key={r.mode} run={r} expected={result.expected[r.mode]} />
+                  <ModeColumn key={r.mode} run={r} result={result} />
                 ))}
               </div>
-              <p className="text-xs text-muted">
-                Both runs use the same genuine signature. The difference is entirely server-side freshness enforcement:
-                cryptographic validity is necessary but not sufficient.
-              </p>
+              <p className="max-w-prose text-xs text-muted">{result.takeaway}</p>
             </section>
           )}
 
