@@ -1,11 +1,13 @@
 # Security Test Evidence
 
-Last run: 2026-11-09 (Sprint 7), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
+Last run: 2026-11-09 (Sprint 8), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless, SQLite WAL).
 **Backend: 215 passed, 0 failed** (`cd services/api && uv run pytest -v`).
-**Web: 46 passed, 0 failed** (`cd apps/web && npm test`).
+**Web unit: 50 passed, 0 failed** (`cd apps/web && npm test`).
+**End-to-end: 7 passed, 0 failed** (`cd apps/web && npm run e2e`: real Chromium, real API, production web build).
 **Structured matrix: 11/11 pass**: [`docs/evidence/matrix-latest.md`](evidence/matrix-latest.md) (JSON alongside).
 
-CI (`.github/workflows/ci.yml`) runs both suites **and the structured matrix** on every push and PR. The matrix table
+CI (`.github/workflows/ci.yml`) runs every suite on every push and PR: pytest, **the structured matrix**, the web unit
+tests and build, **Playwright end-to-end**, and a **Docker** build and smoke test. The matrix table
 goes into the run summary and is uploaded as the `security-matrix` artifact, and any non-pass fails the build.
 
 ## Structured matrix runner (spec §7 evidence format)
@@ -177,9 +179,28 @@ Manual check in Chromium (2026-11-09):
 - Garage → Request lock showed "Latest event: Authenticate · lock ALLOW".
 - Against the live API, the 21st `POST /api/labs` in one minute returned `429 RATE_LIMITED` with `Retry-After`.
 
+## Sprint 8: real-browser evidence (Playwright), accessibility, packaging
+
+| Property | Evidence (`apps/web/e2e/`) |
+|----------|---------------------------|
+| Full owner journey through the real UI: enroll → unlock → lock → replay **DENIED · CHALLENGE_CONSUMED** → Attack Lab (vulnerable accepts, hardened rejects) → revoke → Garage offers no key → Analytics shows the replay | `journey.spec.ts` › owner journey |
+| **The stored browser key can't be exported**: the test reads the `CryptoKey` from IndexedDB, `extractable === false`, and `exportKey("pkcs8")` throws `InvalidAccessError` | owner journey |
+| A signature altered in flight (one character flipped by request interception) is **DENIED · SIGNATURE_INVALID** and the car stays locked (T2, F09) | `a tampered signature in flight…` |
+| A lab is private to its tab: another browser context has no session, and the API returns `404 LAB_NOT_FOUND` for the ID | `a lab is private…` |
+| An expired or unknown lab is explained, not silently dropped | `an expired or unknown lab…` |
+| WCAG 2.1 A/AA axe scan: 0 violations on all 5 pages, both empty and with real data | `a11y.spec.ts` |
+| Keyboard-only start → enroll → unlock | `a11y.spec.ts` |
+
+Mutation check: with replay protection disabled in `authenticate.py` (consume result ignored), the owner-journey e2e
+test **failed**. Restored afterwards (no diff).
+
+Packaging: the CI `docker` job builds both images, waits for health checks, then checks through the containers that a
+lab is readable with its token and returns 404 without it. Docker isn't installed on the dev machine, so CI is the only
+place this runs.
+
 ## Known gaps
 
-- No automated real-browser (Playwright) test yet; browser behaviour above was checked manually.
+- Usability sessions with real participants (spec §11 targets) have not been run; see `USABILITY.md`.
 - The CI API job has no Node, so the *fresh* interop test is skipped there; the committed vector still runs.
 - The concurrency test is proven on SQLite only. PostgreSQL must be re-verified before hosting.
 - Rate-limit counters are per process, and the client key is the direct peer address (D-009). Both must change

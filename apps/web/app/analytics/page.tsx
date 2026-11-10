@@ -51,7 +51,7 @@ function PassFailBar({ pass, fail }: { pass: number; fail: number }) {
 }
 
 export default function AnalyticsPage() {
-  const { session, ready, start, end } = useLab();
+  const { session, ready, start, end, lost, notice } = useLab();
   const [summary, setSummary] = useState<EventSummary | null>(null);
   const [page, setPage] = useState<EventPage | null>(null);
   const [category, setCategory] = useState<EventCategory | "">("");
@@ -83,10 +83,10 @@ export default function AnalyticsPage() {
       setPage(p);
       setError(null);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") end();
+      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") return lost();
       setError(describe(e));
     }
-  }, [session, category, result, reason, q, offset, end]);
+  }, [session, category, result, reason, q, offset, lost]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -126,7 +126,7 @@ export default function AnalyticsPage() {
       </header>
 
       {!ready ? null : !session ? (
-        <StartLab onStart={onStart} busy={busy} error={error} />
+        <StartLab onStart={onStart} busy={busy} error={error} notice={notice} />
       ) : (
         <>
           {summary && auth && (
@@ -137,8 +137,8 @@ export default function AnalyticsPage() {
               <Stat label="Auth allowed" value={String(auth.allowed)} tone="allow" />
               <Stat label="Auth denied" value={String(auth.denied)} tone={auth.denied ? "deny" : undefined} />
               <Stat
-                label="Auth median / p95"
-                value={auth.median_ms === null ? "—" : `${auth.median_ms}/${auth.p95_ms} ms`}
+                label="Server check time (median · p95)"
+                value={auth.median_ms === null ? "—" : `${auth.median_ms} · ${auth.p95_ms} ms`}
               />
             </dl>
           )}

@@ -1,0 +1,23 @@
+# One-command local run: `docker compose up --build`, then open http://localhost:3000
+# Local only. Hosting needs the extra steps in docs/DEPLOYMENT.md first.
+services:
+  api:
+    build: services/api
+    ports: ["8000:8000"]
+    environment:
+      KEYGUARD_WEB_ORIGIN: http://localhost:3000
+    volumes:
+      - keyguard-data:/data
+
+  web:
+    build:
+      context: apps/web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  keyguard-data:

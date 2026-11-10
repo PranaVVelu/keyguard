@@ -56,3 +56,53 @@ jobs:
       - run: npm test
       - run: npm run typecheck   # next typegen (route types are gitignored) + tsc
       - run: npm run build
+
+  e2e:
+    name: End-to-end (Playwright, Chromium)
+    # Pinned: Playwright 1.56 has no Chromium build for ubuntu-latest (26.04) yet.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --python 3.12 --locked
+        working-directory: services/api
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+
+  docker:
+    name: Docker images build and serve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build --detach --wait --wait-timeout 300
+      - name: Smoke test the running stack
+        run: |
+          curl -fsS http://localhost:8000/api/health
+          curl -fsS -o /dev/null -w "web %{http_code}\n" http://localhost:3000/
+          lab=$(curl -fsS -X POST http://localhost:8000/api/labs)
+          id=$(echo "$lab" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lab_id"])')
+          tok=$(echo "$lab" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lab_token"])')
+          curl -fsS -H "Authorization: Bearer $tok" "http://localhost:8000/api/labs/$id/vehicles"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8000/api/labs/$id/vehicles")" = 404
+      - if: always()
+        run: docker compose logs --no-color | tail -100
+      - if: always()
+        run: docker compose down --volumes

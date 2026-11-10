@@ -44,7 +44,10 @@ async function request<T>(path: string, init: RequestInit & { session?: LabSessi
   const body = await resp.json().catch(() => null);
   if (!resp.ok) {
     const err = body?.error;
-    throw new ApiError(resp.status, err?.code ?? "HTTP_ERROR", err?.message ?? `HTTP ${resp.status}`);
+    let message: string = err?.message ?? `HTTP ${resp.status}`;
+    const retry = resp.headers.get("Retry-After");
+    if (resp.status === 429 && retry && /^\d+$/.test(retry)) message += `; try again in ${retry} s`;
+    throw new ApiError(resp.status, err?.code ?? "HTTP_ERROR", message);
   }
   return body as T;
 }

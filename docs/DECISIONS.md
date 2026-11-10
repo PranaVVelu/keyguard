@@ -133,6 +133,8 @@ As built:
 - Frontend: Next.js (App Router), TypeScript strict, Tailwind; npm (already installed).
 - SQLite with `BEGIN IMMEDIATE` for writes locally; the conditional-UPDATE pattern ports unchanged to PostgreSQL.
 - No Docker requirement for Sprint 1 (Docker is not installed); `docker-compose.yml` comes later.
+  **Sprint 8:** `docker-compose.yml` and Dockerfiles added. They're verified in CI (Docker still isn't installed locally).
+- **Sprint 8:** Playwright 1.56 (Chromium) for end-to-end tests and `@axe-core/playwright` for WCAG scans.
 
 ---
 
