@@ -161,3 +161,58 @@ class LabRun(_Strict):
 
 class LabRunList(_Strict):
     runs: list[LabRun]
+
+
+EventCategory = Literal["authentication", "challenge", "key", "scenario", "other"]
+
+
+class SecurityEvent(_Strict):
+    """Sanitized event: IDs, type, outcome and reason code only (no tokens, keys, nonces or signatures)."""
+
+    id: str
+    event_type: str
+    category: EventCategory
+    outcome: str
+    result: Literal["pass", "fail"]
+    reason: str | None
+    vehicle_id: str | None
+    key_id: str | None
+    duration_ms: int | None
+    created_at: int
+
+
+class EventPage(_Strict):
+    total: int
+    limit: int
+    offset: int
+    events: list[SecurityEvent]
+
+
+class PassFail(_Strict):
+    pass_: int = Field(alias="pass", serialization_alias="pass")
+    fail: int
+
+    model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
+
+
+class ReasonCount(_Strict):
+    reason: str
+    count: int
+
+
+class AuthStats(_Strict):
+    allowed: int
+    denied: int
+    median_ms: int | None
+    p95_ms: int | None
+
+
+class EventSummary(_Strict):
+    total: int
+    pass_: int = Field(alias="pass", serialization_alias="pass")
+    fail: int
+    by_category: dict[str, PassFail]
+    failure_reasons: list[ReasonCount]
+    authentication: AuthStats
+
+    model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)

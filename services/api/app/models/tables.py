@@ -73,7 +73,9 @@ challenges = Table(
 security_events = Table(
     "security_events",
     metadata,
-    Column("id", String, primary_key=True),
+    # Integer surrogate key gives a stable insertion order for events written in the same second.
+    Column("seq", Integer, primary_key=True, autoincrement=True),
+    Column("id", String, nullable=False, unique=True),
     Column("lab_id", String, ForeignKey("labs.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("vehicle_id", String),
     Column("key_id", String),

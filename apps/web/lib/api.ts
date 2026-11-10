@@ -192,3 +192,42 @@ export async function runScenario(session: LabSession, scenario: string): Promis
 export async function listLabRuns(session: LabSession): Promise<LabRun[]> {
   return (await request<{ runs: LabRun[] }>(`/api/labs/${session.labId}/lab-runs`, { session })).runs;
 }
+
+export type EventCategory = "authentication" | "challenge" | "key" | "scenario";
+
+export interface SecurityEvent {
+  id: string;
+  event_type: string;
+  category: EventCategory | "other";
+  outcome: string;
+  result: "pass" | "fail";
+  reason: string | null;
+  vehicle_id: string | null;
+  key_id: string | null;
+  duration_ms: number | null;
+  created_at: number;
+}
+
+export interface EventPage {
+  total: number;
+  limit: number;
+  offset: number;
+  events: SecurityEvent[];
+}
+
+export interface EventSummary {
+  total: number;
+  pass: number;
+  fail: number;
+  by_category: Record<EventCategory, { pass: number; fail: number }>;
+  failure_reasons: { reason: string; count: number }[];
+  authentication: { allowed: number; denied: number; median_ms: number | null; p95_ms: number | null };
+}
+
+export async function listEvents(session: LabSession, query: string): Promise<EventPage> {
+  return request<EventPage>(`/api/labs/${session.labId}/events${query}`, { session });
+}
+
+export async function getEventSummary(session: LabSession): Promise<EventSummary> {
+  return request<EventSummary>(`/api/labs/${session.labId}/events/summary`, { session });
+}

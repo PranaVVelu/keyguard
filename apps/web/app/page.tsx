@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { DecisionPanel } from "@/components/DecisionPanel";
 import { LabMeta, StartLab } from "@/components/LabBar";
 import { VehicleVisual } from "@/components/VehicleVisual";
-import { ApiError, type Action, type Decision } from "@/lib/api";
+import { ApiError, listEvents, type Action, type Decision, type SecurityEvent } from "@/lib/api";
 import { ClientRefusal, performAction } from "@/lib/auth-flow";
+import { describeReason, eventLabel, eventQueryString } from "@/lib/events";
 import { getKey } from "@/lib/keystore";
 import { useLab } from "@/lib/use-lab";
 import { useLabKeys } from "@/lib/use-keys";
@@ -25,6 +26,21 @@ export default function GaragePage() {
   const [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [latest, setLatest] = useState<SecurityEvent | null>(null);
+
+  const loadLatest = useCallback(async () => {
+    if (!session) return;
+    try {
+      setLatest((await listEvents(session, eventQueryString({ limit: 1 }))).events[0] ?? null);
+    } catch {
+      // Non-essential: the decision panel already shows the outcome.
+    }
+  }, [session]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadLatest();
+  }, [loadLatest]);
 
   const keyId = usable.some((k) => k.id === selectedKey) ? selectedKey : (usable[0]?.id ?? "");
 
@@ -44,6 +60,7 @@ export default function GaragePage() {
       setError(describe(e));
     } finally {
       setPending(null);
+      void loadLatest();
     }
   };
 
@@ -143,6 +160,20 @@ export default function GaragePage() {
               server verifies and decides. The car graphic only mirrors the backend&apos;s answer. A valid signature
               doesn&apos;t prove you&apos;re physically near the car.
             </p>
+            {latest && (
+              <p className="mt-4 border-t border-line pt-3 text-xs text-muted">
+                Latest event:{" "}
+                <span className="text-fg">{eventLabel(latest.event_type)}</span>{" "}
+                <span className={`font-mono uppercase ${latest.result === "pass" ? "text-allow" : "text-deny"}`}>
+                  {latest.outcome.replace("_", " ")}
+                </span>
+                {latest.reason && <span> · {describeReason(latest.reason)}</span>}{" "}
+                <span className="font-mono">· {new Date(latest.created_at * 1000).toLocaleTimeString()}</span>{" "}
+                <Link href="/analytics" className="text-accent underline-offset-4 hover:underline">
+                  All events →
+                </Link>
+              </p>
+            )}
             {shownError && (
               <p role="alert" className="mt-4 font-mono text-xs text-deny">
                 {shownError}

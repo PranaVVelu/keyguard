@@ -79,7 +79,7 @@ class Driver:
         from app.main import create_app
 
         self.t = START
-        self.app = create_app(f"sqlite:///{tmpdir / 'matrix.db'}", clock=lambda: self.t)
+        self.app = create_app(f"sqlite:///{tmpdir / 'matrix.db'}", clock=lambda: self.t, cleanup_interval=0)
         self.http = TestClient(self.app)
         lab = self.http.post("/api/labs").json()
         self.lab_id, self.token = lab["lab_id"], lab["lab_token"]

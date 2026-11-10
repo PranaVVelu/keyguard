@@ -29,7 +29,7 @@ def client(tmp_path, clock):
 
     from app.main import create_app
 
-    app = create_app(f"sqlite:///{tmp_path / 'kg.db'}", clock=clock)
+    app = create_app(f"sqlite:///{tmp_path / 'kg.db'}", clock=clock, cleanup_interval=0)
     with TestClient(app) as c:
         yield c
     app.state.engine.dispose()

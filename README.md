@@ -3,7 +3,7 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 6: all seven P0 features complete** (Garage, enrollment, challenge-response, Inspector, replay lab, revocation, CI tests). The browser enrolls a non-extractable key and signs a server
+**Status: Sprint 7: all seven P0 features complete, plus Security Analytics (F08)** (Garage, enrollment, challenge-response, Inspector, replay lab, revocation, CI tests). The API now has rate limits, TTL cleanup and event retention (D-009). The browser enrolls a non-extractable key and signs a server
 challenge, and the backend verifies and decides. Credentials can be revoked. All 11 rows of the spec's mandatory
 test matrix pass through the real API, and a structured runner records the evidence on every CI run
 ([latest](docs/evidence/matrix-latest.md)). The Attack Lab runs a replay against an isolated, deliberately
@@ -17,7 +17,8 @@ apps/web/          Next.js 16 + TypeScript + Tailwind
   lib/             encoding.ts (kg-auth-v1), crypto.ts (Web Crypto), keystore.ts (IndexedDB), auth-flow.ts, api.ts
   tests/           node --test (encoding vectors, Web Crypto interop)
 services/api/      FastAPI backend
-  app/security/    protocol.py (kg-auth-v1 + ECDSA verify), challenges.py (atomic consume), authenticate.py (decision engine), labs.py, keys.py
+  app/security/    protocol.py (kg-auth-v1 + ECDSA verify), challenges.py (atomic consume), authenticate.py (decision engine),
+                   labs.py, keys.py, events.py, ratelimit.py, cleanup.py
   app/models/      DB tables, API schemas
   app/routes/      HTTP endpoints
   tests/           pytest suite
@@ -57,9 +58,15 @@ npm run dev          # http://localhost:3000
 | GET | `/api/labs/{id}/scenarios` | List Attack Lab scenarios |
 | POST | `/api/labs/{id}/scenarios/{scenario}` | Run vulnerable vs hardened on disposable state |
 | GET | `/api/labs/{id}/lab-runs` | Scenario run history (expected vs actual per mode) |
+| GET | `/api/labs/{id}/events` | Sanitized event history; filter by `category`, `result`, `reason`, `q`; paged |
+| GET | `/api/labs/{id}/events/summary` | Pass/fail per category, failure reasons, authentication timing |
 | GET | `/api/health` | Liveness check |
 
-Not implemented yet: events API and Security Analytics (Sprint 7, P1).
+Every endpoint is rate limited (`429 RATE_LIMITED` with `Retry-After`; limits are in D-009). Expired labs are deleted by a
+background cleanup task (`KEYGUARD_CLEANUP_INTERVAL`, default 300 s).
+
+> Upgrading from an earlier sprint? The event table changed. Delete your local `keyguard.db` (lab data is disposable);
+> the API refuses to start on a stale schema and tells you so.
 
 ## Docs
 

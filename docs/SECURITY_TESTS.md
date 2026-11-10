@@ -1,8 +1,8 @@
 # Security Test Evidence
 
-Last run: 2026-11-09 (Sprint 6), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
-**Backend: 172 passed, 0 failed** (`cd services/api && uv run pytest -v`).
-**Web: 41 passed, 0 failed** (`cd apps/web && npm test`).
+Last run: 2026-11-09 (Sprint 7), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
+**Backend: 215 passed, 0 failed** (`cd services/api && uv run pytest -v`).
+**Web: 46 passed, 0 failed** (`cd apps/web && npm test`).
 **Structured matrix: 11/11 pass**: [`docs/evidence/matrix-latest.md`](evidence/matrix-latest.md) (JSON alongside).
 
 CI (`.github/workflows/ci.yml`) runs both suites **and the structured matrix** on every push and PR. The matrix table
@@ -140,9 +140,47 @@ message split into tag + 7 length-prefixed fields; r/s halves; request bodies) �
 "Replay this exact response" → **DENIED · CHALLENGE_CONSUMED**. Garage → Request lock → **ALLOWED · LOCKED**,
 graphic shows the closed lock.
 
+## Sprint 7: events, Security Analytics (F08) and resource controls (T12)
+
+| Property | Evidence |
+|----------|----------|
+| Events are newest first, with category and pass/fail derived on the server | `test_lists_newest_first_with_category_and_result` |
+| Events and the summary never contain the lab token, nonce, signature or key bytes | `test_events_never_contain_secrets` |
+| Filters, search and LIKE-wildcard escaping (`%` matches nothing, `_` is literal) | `test_filters_and_search[…]` (11 cases) |
+| Events are scoped to the lab; another lab's token gets the uniform 404 | `test_events_are_scoped_to_the_lab` |
+| Summary counts, failure categories and timing | `test_summary_counts_and_failure_categories`, `test_empty_lab_summary` |
+| Bad query parameters get `422 REQUEST_INVALID` | `test_invalid_query_parameters_are_rejected[…]` (8 cases) |
+| Lab creation is limited per client; per-lab limit only counts authorized requests | `test_lab_creation_is_limited_per_client`, `test_per_lab_limit_applies_after_authorization_only` |
+| Unauthenticated probing is limited per client | `test_per_client_limit_covers_unauthenticated_probing` |
+| **A rate-limited authenticate doesn't consume the challenge**, and the same response succeeds in the next window | `test_rate_limited_authenticate_never_reaches_the_engine` |
+| Capacity returns `503 LAB_CAPACITY`, and cleanup frees space | `test_lab_capacity_returns_503_and_cleanup_frees_space` |
+| Cleanup deletes an expired lab and **every** child row, but not unexpired labs | `test_cleanup_deletes_expired_labs_and_everything_in_them` |
+| Dead challenges are pruned after the grace period; a pruned one still fails closed | `test_cleanup_prunes_dead_challenges_but_keeps_live_ones` |
+| Event retention keeps the newest N per lab | `test_cleanup_keeps_only_the_newest_events_per_lab` |
+| A stale database schema is refused with a clear message | `test_stale_schema_is_refused_with_a_clear_message` |
+
+Mutation check (manual, all reverted). These were each caught by a failing test:
+- dropping the `lab_id` clause from the event query;
+- removing the LIKE escaping;
+- removing the per-lab limit;
+- removing the lab-creation limit;
+- counting `deny` as a pass;
+- removing the 5-minute challenge grace period (caught only after a test for it was added this sprint).
+
+Removing the explicit event delete in cleanup was *not* caught. That's an equivalent mutant on SQLite: `ON DELETE
+CASCADE` still removes the rows.
+
+Manual check in Chromium (2026-11-09):
+- Started a lab, enrolled a key, ran the Inspector unlock and replay, and ran the Attack Lab scenario.
+- Analytics then showed 5 events (4 pass, 1 fail), with `CHALLENGE_CONSUMED` as the only failure reason.
+- Clicking that reason filtered the log to the one denied authentication. Searching "scenario" found the scenario run.
+- Garage → Request lock showed "Latest event: Authenticate · lock ALLOW".
+- Against the live API, the 21st `POST /api/labs` in one minute returned `429 RATE_LIMITED` with `Retry-After`.
+
 ## Known gaps
 
 - No automated real-browser (Playwright) test yet; browser behaviour above was checked manually.
 - The CI API job has no Node, so the *fresh* interop test is skipped there; the committed vector still runs.
 - The concurrency test is proven on SQLite only. PostgreSQL must be re-verified before hosting.
-- Concurrency has been proven on SQLite only; re-verify on PostgreSQL before hosting.
+- Rate-limit counters are per process, and the client key is the direct peer address (D-009). Both must change
+  before a multi-worker or proxied deployment.
