@@ -50,8 +50,8 @@ counts as demonstrated until a passing test is linked in `SECURITY_TESTS.md`.
 | T8 | Double-spend via concurrent submissions | T | Atomic conditional UPDATE in one transaction | Concurrent ×N → ≤1 Allow |
 | T9 | Malformed input crashes or confuses the parser | D/T | Pydantic strict schemas; length and charset limits; fail closed | Malformed → 4xx, no state change |
 | T10 | Client-asserted success or state | T | Server ignores client state; the UI renders only API decisions | Covered by API design and review |
-| T11 | Sensitive data in logs | I | Log IDs and reason codes only; never tokens or signatures in full | Log-scrubbing unit test |
-| T12 | Resource exhaustion (challenge/lab spam) | D | Rate limits, TTL cleanup, max entities per lab | Sprint 7 |
+| T11 | Sensitive data in logs | I | Log IDs and reason codes only; never tokens, nonces, keys or signatures | `test_events_never_contain_secrets` |
+| T12 | Resource exhaustion (challenge/lab spam) | D | Rate limits (per client, per lab, lab creation), lab capacity, TTL cleanup, event retention cap, max keys/open challenges per lab (D-009) | `tests/test_limits_and_cleanup.py` |
 | T13 | Vulnerable lab code reachable from the hardened path | E | Physical module separation + import-graph test (D-005) | `tests/test_lab_isolation.py` |
 | T14 | Weak curve or invalid public key enrolled | S | SPKI must parse as P-256; reject other curves and invalid points | Enrollment negative tests |
 

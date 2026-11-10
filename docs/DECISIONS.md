@@ -168,3 +168,42 @@ Resolves review item 11 (spec §12 "browser key persistence").
   from a revoked key is still denied), but the Garage only offers keys that are active on the server.
 - The structured matrix runner lives in `app/evidence/` (not `app/lab/`, which is reserved for the deliberately
   vulnerable verifier, D-005). It uses only public API calls plus the engine for the concurrency row.
+
+---
+
+## D-009 Resource controls, event retention and the events API — ACCEPTED (2026-11-09, Sprint 7)
+
+Resolves T12 and the spec §6 rule "apply rate limits and TTL cleanup", plus the §11 release gate on resource limits and
+event retention.
+
+- **Rate limits** (`app/security/ratelimit.py`): fixed windows, `429 RATE_LIMITED` with `Retry-After`.
+  | Bucket | Key | Default |
+  |--------|-----|---------|
+  | every `/api/` request | client address | 600 / 60 s |
+  | `POST /api/labs` | client address | 20 / 60 s |
+  | authorized lab requests | `lab_id` | 120 / 60 s |
+  The per-lab bucket is counted **only after** the bearer token checks out, so nobody without the token can spend a
+  lab's budget. A 429 returns before any handler runs, so a rate-limited `authenticate` never consumes a challenge.
+  Configurable through `KEYGUARD_RATE_CLIENT`, `KEYGUARD_RATE_LAB_CREATE` and `KEYGUARD_RATE_LAB` (`N/seconds` or `off`).
+- **Accepted limitation:** the counters live in memory in each process, so N workers allow N× the rate, and the client key
+  is the direct peer address (behind a proxy that's the proxy). A hosted deployment needs a shared store and trusted
+  forwarding headers first.
+- **Capacity:** at most 5,000 unexpired labs. When full, `POST /api/labs` runs a cleanup pass and then, if it's still
+  full, returns `503 LAB_CAPACITY`.
+- **TTL cleanup** (`app/security/cleanup.py`) runs at startup and every `KEYGUARD_CLEANUP_INTERVAL` seconds (default
+  300; 0 turns it off). It deletes:
+  - expired labs, with their vehicles, keys, challenges, events and runs (deleted explicitly, not only by cascade);
+  - challenges more than 5 minutes past expiry. A pruned challenge then fails as `CHALLENGE_NOT_FOUND` instead of
+    `CHALLENGE_EXPIRED`; it's still denied.
+  
+  It also trims each lab's events to the newest 2,000. You can run it by hand with `python -m app.security.cleanup`.
+- **Events API:** `GET /api/labs/{id}/events` (newest first; filter by `category`, `result=pass|fail`, `reason` and
+  `q`; `limit` ≤ 200; `offset` ≤ 2000) and `GET /api/labs/{id}/events/summary` (pass/fail per category, failure reasons
+  ranked, authentication median/p95 ms).
+  - Every filter is applied in SQL inside the lab. `q` is matched as a literal substring, with LIKE wildcards escaped.
+  - Events hold IDs, type, outcome and reason code only (T11).
+  - Pass outcomes are `allow`, `issued`, `success` and `as_expected`; everything else is a fail.
+- **Event order:** `security_events` has an integer surrogate key `seq`, so events written in the same second keep their
+  insertion order.
+- **No migrations in the MVP:** on startup the schema is checked, and a stale database is refused with a message saying to
+  delete it. Lab data is disposable.
