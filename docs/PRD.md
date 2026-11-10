@@ -42,7 +42,7 @@ decisions made by the backend.
 | F06 | P0 | Revocation | ✅ Immediate and idempotent (D-008) |
 | F07 | P0 | Automated tests | ✅ pytest, node:test, Playwright, structured matrix; all run in CI and block merges |
 | F08 | P1 | Security event dashboard | ✅ Security Analytics: searchable log, pass/fail, failure categories (D-009) |
-| F09 | P1 | Tampering scenarios | ◐ Rejection is proven (matrix MX-02, e2e in-flight tamper test) and visible in the Inspector, but there's no dedicated Attack Lab tamper scenario yet |
+| F09 | P1 | Tampering scenarios | ✅ Attack Lab `tamper` scenario: stapled and byte-flipped signatures are denied `SIGNATURE_INVALID` by both verifiers (server rebuilds the signed bytes); also matrix MX-02 and the e2e in-flight tamper test |
 | F10 | P2 | Key card / fob simulations | Not started |
 | F11 | P2 | Proximity visualization | Not started |
 | F12 | P2 | Accounts | Not started (labs are anonymous and disposable, D-002) |

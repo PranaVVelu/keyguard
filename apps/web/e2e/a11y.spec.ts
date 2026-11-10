@@ -47,7 +47,7 @@ test("no WCAG A/AA violations with real data on every page", async ({ page }) =>
   expect(await scan(page), "/inspector").toEqual([]);
 
   await nav("Attack Lab");
-  await page.getByRole("button", { name: "Run scenario" }).click();
+  await page.getByRole("button", { name: "Run scenario: Replay a captured unlock" }).click();
   await expect(page.getByText(/REPLAY REJECTED/)).toBeVisible();
   expect(await scan(page), "/lab").toEqual([]);
 

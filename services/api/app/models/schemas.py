@@ -130,6 +130,9 @@ class ScenarioResult(_Strict):
     title: str
     description: str
     expected: dict[str, str]
+    attack_label: str
+    mode_notes: dict[str, str]
+    takeaway: str
     actual: dict[str, str]
     matches_expected: bool
     runs: list[ScenarioModeRun]
@@ -142,6 +145,9 @@ class ScenarioSummary(_Strict):
     title: str
     description: str
     expected: dict[str, str]
+    attack_label: str
+    mode_notes: dict[str, str]
+    takeaway: str
 
 
 class ScenarioCatalog(_Strict):

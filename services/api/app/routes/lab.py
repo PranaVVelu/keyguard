@@ -21,7 +21,13 @@ MAX_RUNS_LISTED = 50
 @router.get("/{lab_id}/scenarios", response_model=ScenarioCatalog, responses={404: {"model": ErrorResponse}})
 def list_scenarios(lab_id: str = Depends(require_lab)) -> ScenarioCatalog:
     return ScenarioCatalog(
-        scenarios=[ScenarioSummary(id=s.id, title=s.title, description=s.description, expected=s.expected) for s in SCENARIOS.values()]
+        scenarios=[
+            ScenarioSummary(
+                id=s.id, title=s.title, description=s.description, expected=s.expected,
+                attack_label=s.attack_label, mode_notes=s.mode_notes, takeaway=s.takeaway,
+            )
+            for s in SCENARIOS.values()
+        ]
     )
 
 

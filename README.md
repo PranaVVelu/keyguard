@@ -8,7 +8,7 @@ backend makes every decision:
 - **Garage:** request unlock or lock and see the server's decision.
 - **Digital Keys:** non-extractable browser keys, enrollment and revocation.
 - **Inspector:** a step-by-step view of a real challenge-response exchange.
-- **Attack Lab:** a replay against an isolated vulnerable verifier and the real engine, side by side.
+- **Attack Lab:** replay and tampering scenarios against an isolated vulnerable verifier and the real engine, side by side.
 - **Security Analytics:** a searchable event log with failure categories.
 
 The spec's 11-row mandatory test matrix passes through the real API ([latest evidence](docs/evidence/matrix-latest.md)).
