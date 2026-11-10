@@ -1,25 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
 import { DecisionPanel } from "@/components/DecisionPanel";
 import { LabMeta, StartLab } from "@/components/LabBar";
-import {
-  ApiError,
-  authenticate,
-  getVehicles,
-  issueChallenge,
-  listKeys,
-  type Action,
-  type Decision,
-  type DigitalKey,
-  type Vehicle,
-} from "@/lib/api";
-import { ClientRefusal, signedMessageFor } from "@/lib/auth-flow";
-import { signMessage } from "@/lib/crypto";
-import { getKey, listKeysForLab } from "@/lib/keystore";
+import { VehicleVisual } from "@/components/VehicleVisual";
+import { ApiError, type Action, type Decision } from "@/lib/api";
+import { ClientRefusal, performAction } from "@/lib/auth-flow";
+import { getKey } from "@/lib/keystore";
 import { useLab } from "@/lib/use-lab";
+import { useLabKeys } from "@/lib/use-keys";
 
 function describe(e: unknown): string {
   if (e instanceof ApiError || e instanceof ClientRefusal) return `${e.code}: ${e.message}`;
@@ -28,35 +19,13 @@ function describe(e: unknown): string {
 
 export default function GaragePage() {
   const { session, ready, start, end } = useLab();
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
-  const [keys, setKeys] = useState<DigitalKey[]>([]);
-  const [localKeyIds, setLocalKeyIds] = useState<Set<string>>(new Set());
+  const { vehicle, setVehicle, usable, error: loadError, refresh } = useLabKeys(session, end);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [decision, setDecision] = useState<Decision | null>(null);
   const [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(async () => {
-    if (!session) return;
-    try {
-      const [vs, ks, local] = await Promise.all([getVehicles(session), listKeys(session), listKeysForLab(session.labId)]);
-      setVehicle(vs[0] ?? null);
-      setKeys(ks);
-      setLocalKeyIds(new Set(local.map((k) => k.keyId)));
-    } catch (e) {
-      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") end();
-      setError(describe(e));
-    }
-  }, [session, end]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refresh();
-  }, [refresh]);
-
-  // Keys this browser can actually use: active on the server AND holding the private key locally.
-  const usable = keys.filter((k) => k.status === "active" && localKeyIds.has(k.id));
   const keyId = usable.some((k) => k.id === selectedKey) ? selectedKey : (usable[0]?.id ?? "");
 
   const run = async (action: Action) => {
@@ -66,13 +35,10 @@ export default function GaragePage() {
     try {
       const stored = await getKey(keyId);
       if (!stored) throw new ClientRefusal("KEY_NOT_IN_BROWSER", "Private key for this key ID is not in this browser");
-      const req = { vehicleId: vehicle.id, keyId, action };
-      const chl = await issueChallenge(session, req);
-      const signature = await signMessage(stored.privateKey, signedMessageFor(req, chl));
-      const d = await authenticate(session, { challengeId: chl.challenge_id, keyId, signature });
-      setDecision(d);
+      const { decision: d } = await performAction(session, { vehicleId: vehicle.id, keyId, action }, stored.privateKey);
+      setDecision(d!);
       // Lock state shown on screen comes from the server's decision, then a fresh read.
-      if (d.lock_state) setVehicle({ ...vehicle, lock_state: d.lock_state });
+      if (d?.lock_state) setVehicle({ ...vehicle, lock_state: d.lock_state });
       await refresh();
     } catch (e) {
       setError(describe(e));
@@ -93,6 +59,8 @@ export default function GaragePage() {
     }
   };
 
+  const shownError = error ?? loadError;
+
   return (
     <div className="space-y-6">
       <header className="space-y-2">
@@ -101,7 +69,7 @@ export default function GaragePage() {
       </header>
 
       {!ready ? null : !session ? (
-        <StartLab onStart={onStart} busy={busy} error={error} />
+        <StartLab onStart={onStart} busy={busy} error={shownError} />
       ) : (
         <>
           <section aria-labelledby="vehicle-heading" className="rounded-lg border border-line bg-panel p-6">
@@ -113,7 +81,7 @@ export default function GaragePage() {
                 <p className="mt-1 font-mono text-xs text-muted">{vehicle?.id}</p>
               </div>
               {vehicle && (
-                <p className="text-right">
+                <p className="text-right" aria-live="polite">
                   <span
                     className={`block text-2xl font-semibold uppercase tracking-wide ${
                       vehicle.lock_state === "unlocked" ? "text-allow" : ""
@@ -126,8 +94,12 @@ export default function GaragePage() {
               )}
             </div>
 
+            <div className="my-6 flex justify-center">
+              <VehicleVisual lockState={vehicle?.lock_state} />
+            </div>
+
             {usable.length === 0 ? (
-              <p className="mt-6 text-sm">
+              <p className="text-sm">
                 No usable key in this browser.{" "}
                 <Link href="/keys" className="text-accent underline-offset-4 hover:underline">
                   Enroll a key
@@ -135,7 +107,7 @@ export default function GaragePage() {
                 to unlock or lock.
               </p>
             ) : (
-              <div className="mt-6 flex flex-wrap items-end gap-3">
+              <div className="flex flex-wrap items-end gap-3">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="text-muted">Key</span>
                   <select
@@ -161,15 +133,19 @@ export default function GaragePage() {
                     {pending === action ? "Verifying…" : `Request ${action}`}
                   </button>
                 ))}
+                <Link href="/inspector" className="ml-auto text-sm text-accent underline-offset-4 hover:underline">
+                  Step through it in the Inspector →
+                </Link>
               </div>
             )}
             <p className="mt-3 text-xs text-muted">
               Each request: server issues a 30-second challenge → this browser signs it with its non-extractable key → the
-              server verifies and decides. A valid signature doesn&apos;t prove you&apos;re physically near the car.
+              server verifies and decides. The car graphic only mirrors the backend&apos;s answer. A valid signature
+              doesn&apos;t prove you&apos;re physically near the car.
             </p>
-            {error && (
+            {shownError && (
               <p role="alert" className="mt-4 font-mono text-xs text-deny">
-                {error}
+                {shownError}
               </p>
             )}
           </section>

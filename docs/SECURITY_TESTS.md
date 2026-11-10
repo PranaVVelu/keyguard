@@ -1,8 +1,8 @@
 # Security Test Evidence
 
-Last run: 2026-11-06 (Sprint 5), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
+Last run: 2026-11-09 (Sprint 6), local (macOS arm64, Python 3.12.16, Node 24.14, SQLite WAL).
 **Backend: 172 passed, 0 failed** (`cd services/api && uv run pytest -v`).
-**Web: 35 passed, 0 failed** (`cd apps/web && npm test`).
+**Web: 41 passed, 0 failed** (`cd apps/web && npm test`).
 **Structured matrix: 11/11 pass**: [`docs/evidence/matrix-latest.md`](evidence/matrix-latest.md) (JSON alongside).
 
 CI (`.github/workflows/ci.yml`) runs both suites **and the structured matrix** on every push and PR. The matrix table
@@ -126,6 +126,19 @@ database-reach test fail. Both were reverted.
 
 Manual check in Chromium: Attack Lab → Run "Replay a captured unlock" → vulnerable **REPLAY ACCEPTED, car UNLOCKED**;
 hardened **REPLAY REJECTED · CHALLENGE_CONSUMED, car stays LOCKED**; results match expectations; history shows both rows.
+
+## Sprint 6: Inspector (F04)
+
+- `lib/annotate.ts` parses signed bytes back into labelled segments and rejects a wrong tag, truncation or
+  trailing bytes. `annotate.test.ts` round-trips all 4 encoding vectors back into their exact fields.
+- The Garage and the Inspector share one client flow (`performAction` in `lib/auth-flow.ts`), so the Inspector
+  shows the same exchange the Garage performs, not a re-enactment.
+- The vehicle graphic only mirrors the backend's `lock_state`, and its light flash only plays when that changes.
+
+Manual check in Chromium (2026-11-09): Inspector → Run unlock → all 7 stages DONE with real artifacts (190-byte
+message split into tag + 7 length-prefixed fields; r/s halves; request bodies) → **ALLOWED · UNLOCKED** →
+"Replay this exact response" → **DENIED · CHALLENGE_CONSUMED**. Garage → Request lock → **ALLOWED · LOCKED**,
+graphic shows the closed lock.
 
 ## Known gaps
 

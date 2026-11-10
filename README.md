@@ -3,7 +3,7 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 5: Attack Lab.** The browser enrolls a non-extractable key and signs a server
+**Status: Sprint 6: all seven P0 features complete** (Garage, enrollment, challenge-response, Inspector, replay lab, revocation, CI tests). The browser enrolls a non-extractable key and signs a server
 challenge, and the backend verifies and decides. Credentials can be revoked. All 11 rows of the spec's mandatory
 test matrix pass through the real API, and a structured runner records the evidence on every CI run
 ([latest](docs/evidence/matrix-latest.md)). The Attack Lab runs a replay against an isolated, deliberately
@@ -59,7 +59,7 @@ npm run dev          # http://localhost:3000
 | GET | `/api/labs/{id}/lab-runs` | Scenario run history (expected vs actual per mode) |
 | GET | `/api/health` | Liveness check |
 
-Not implemented yet: events API and analytics (Sprint 7), protocol inspector page (Sprint 6).
+Not implemented yet: events API and Security Analytics (Sprint 7, P1).
 
 ## Docs
 
