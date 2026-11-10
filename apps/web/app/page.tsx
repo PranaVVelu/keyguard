@@ -19,8 +19,8 @@ function describe(e: unknown): string {
 }
 
 export default function GaragePage() {
-  const { session, ready, start, end } = useLab();
-  const { vehicle, setVehicle, usable, error: loadError, refresh } = useLabKeys(session, end);
+  const { session, ready, start, end, lost, notice } = useLab();
+  const { vehicle, setVehicle, usable, error: loadError, refresh } = useLabKeys(session, lost);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [decision, setDecision] = useState<Decision | null>(null);
   const [pending, setPending] = useState<Action | null>(null);
@@ -86,7 +86,7 @@ export default function GaragePage() {
       </header>
 
       {!ready ? null : !session ? (
-        <StartLab onStart={onStart} busy={busy} error={shownError} />
+        <StartLab onStart={onStart} busy={busy} error={shownError} notice={notice} />
       ) : (
         <>
           <section aria-labelledby="vehicle-heading" className="rounded-lg border border-line bg-panel p-6">
@@ -118,7 +118,7 @@ export default function GaragePage() {
             {usable.length === 0 ? (
               <p className="text-sm">
                 No usable key in this browser.{" "}
-                <Link href="/keys" className="text-accent underline-offset-4 hover:underline">
+                <Link href="/keys" className="text-accent underline underline-offset-4">
                   Enroll a key
                 </Link>{" "}
                 to unlock or lock.
@@ -169,7 +169,7 @@ export default function GaragePage() {
                 </span>
                 {latest.reason && <span> · {describeReason(latest.reason)}</span>}{" "}
                 <span className="font-mono">· {new Date(latest.created_at * 1000).toLocaleTimeString()}</span>{" "}
-                <Link href="/analytics" className="text-accent underline-offset-4 hover:underline">
+                <Link href="/analytics" className="text-accent underline underline-offset-4">
                   All events →
                 </Link>
               </p>

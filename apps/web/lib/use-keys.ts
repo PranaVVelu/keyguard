@@ -25,7 +25,7 @@ export function useLabKeys(session: LabSession | null, onLabGone: () => void) {
       setLocalIds(new Set(local.map((k) => k.keyId)));
       setError(null);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") onLabGone();
+      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") return onLabGone();
       setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e));
     }
   }, [session, onLabGone]);

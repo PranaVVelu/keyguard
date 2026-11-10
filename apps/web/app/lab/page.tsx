@@ -66,7 +66,7 @@ function ModeColumn({ run, expected }: { run: ScenarioModeRun; expected: string 
 }
 
 export default function AttackLabPage() {
-  const { session, ready, start, end } = useLab();
+  const { session, ready, start, end, lost, notice } = useLab();
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [result, setResult] = useState<ScenarioResult | null>(null);
   const [history, setHistory] = useState<LabRun[]>([]);
@@ -81,10 +81,10 @@ export default function AttackLabPage() {
       setScenarios(sc);
       setHistory(runs);
     } catch (e) {
-      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") end();
+      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") return lost();
       setError(describe(e));
     }
-  }, [session, end]);
+  }, [session, lost]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -124,7 +124,7 @@ export default function AttackLabPage() {
       </header>
 
       {!ready ? null : !session ? (
-        <StartLab onStart={onStart} busy={busy} error={error} />
+        <StartLab onStart={onStart} busy={busy} error={error} notice={notice} />
       ) : (
         <>
           <p className="max-w-prose text-sm text-muted">

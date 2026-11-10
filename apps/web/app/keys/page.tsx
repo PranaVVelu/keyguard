@@ -11,7 +11,7 @@ import { useLab } from "@/lib/use-lab";
 type Step = { label: string; detail?: string; state: "done" | "failed" };
 
 export default function KeysPage() {
-  const { session, ready, start, end } = useLab();
+  const { session, ready, start, end, lost, notice } = useLab();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [keys, setKeys] = useState<DigitalKey[]>([]);
   const [localKeyIds, setLocalKeyIds] = useState<Set<string>>(new Set());
@@ -29,10 +29,10 @@ export default function KeysPage() {
       setKeys(ks);
       setLocalKeyIds(new Set(local.map((k) => k.keyId)));
     } catch (e) {
-      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") end();
+      if (e instanceof ApiError && e.code === "LAB_NOT_FOUND") return lost();
       setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e));
     }
-  }, [session, end]);
+  }, [session, lost]);
 
   useEffect(() => {
     // Loading server state into React state is what this effect is for.
@@ -124,7 +124,7 @@ export default function KeysPage() {
       </header>
 
       {!ready ? null : !session ? (
-        <StartLab onStart={onStart} busy={busy} error={error} />
+        <StartLab onStart={onStart} busy={busy} error={error} notice={notice} />
       ) : (
         <>
           <section aria-labelledby="enroll-heading" className="rounded-lg border border-line bg-panel p-6">

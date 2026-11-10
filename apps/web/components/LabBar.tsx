@@ -19,9 +19,24 @@ export function LabMeta({ session, onEnd }: { session: LabSession; onEnd: () => 
   );
 }
 
-export function StartLab({ onStart, busy, error }: { onStart: () => void; busy: boolean; error: string | null }) {
+export function StartLab({
+  onStart,
+  busy,
+  error,
+  notice,
+}: {
+  onStart: () => void;
+  busy: boolean;
+  error: string | null;
+  notice?: string | null;
+}) {
   return (
     <section className="rounded-lg border border-line bg-panel p-8">
+      {notice && (
+        <p role="status" className="mb-4 rounded-md border border-line bg-warn-bg px-3 py-2 text-sm text-warn-fg">
+          {notice}
+        </p>
+      )}
       <h2 className="text-lg font-medium">No lab yet</h2>
       <p className="mt-2 max-w-prose text-sm text-muted">
         A lab is a disposable, isolated sandbox with one fictional vehicle. Its access token stays in this browser tab

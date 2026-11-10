@@ -10,6 +10,7 @@ import { clearSession, loadSession, saveSession, type LabSession } from "./lab-s
 export function useLab() {
   const [session, setSession] = useState<LabSession | null>(null);
   const [ready, setReady] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     // sessionStorage only exists in the browser, so this must run after hydration.
@@ -22,6 +23,7 @@ export function useLab() {
     const s = await createLab();
     saveSession(s);
     await purgeOtherLabs(s.labId).catch(() => undefined);
+    setNotice(null);
     setSession(s);
     return s;
   }, []);
@@ -31,5 +33,12 @@ export function useLab() {
     setSession(null);
   }, []);
 
-  return { session, ready, start, end };
+  /** The server no longer recognises this lab (expired after 24 h, or cleaned up). Explain instead of vanishing. */
+  const lost = useCallback(() => {
+    clearSession();
+    setSession(null);
+    setNotice("Your previous lab has expired or was removed, so its car, keys and history are gone. Start a new lab to continue.");
+  }, []);
+
+  return { session, ready, start, end, lost, notice };
 }

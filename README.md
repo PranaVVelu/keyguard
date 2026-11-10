@@ -3,19 +3,36 @@
 Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
 replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
 
-**Status: Sprint 7: all seven P0 features complete, plus Security Analytics (F08)** (Garage, enrollment, challenge-response, Inspector, replay lab, revocation, CI tests). The API now has rate limits, TTL cleanup and event retention (D-009). The browser enrolls a non-extractable key and signs a server
-challenge, and the backend verifies and decides. Credentials can be revoked. All 11 rows of the spec's mandatory
-test matrix pass through the real API, and a structured runner records the evidence on every CI run
-([latest](docs/evidence/matrix-latest.md)). The Attack Lab runs a replay against an isolated, deliberately
-vulnerable verifier and the real engine side by side.
-See [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md) for exactly what is and isn't proven.
+**Status: MVP complete (Sprint 8 of 8).** All seven P0 features plus Security Analytics (F08) work end to end, and the
+backend makes every decision:
+- **Garage:** request unlock or lock and see the server's decision.
+- **Digital Keys:** non-extractable browser keys, enrollment and revocation.
+- **Inspector:** a step-by-step view of a real challenge-response exchange.
+- **Attack Lab:** a replay against an isolated vulnerable verifier and the real engine, side by side.
+- **Security Analytics:** a searchable event log with failure categories.
+
+The spec's 11-row mandatory test matrix passes through the real API ([latest evidence](docs/evidence/matrix-latest.md)).
+Real-browser Playwright tests drive the whole journey, and all of it runs in CI.
+
+It's ready as a **local demo**. Public hosting needs the gates in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) first, and
+the usability sessions haven't been run yet. See [docs/RELEASE_GATES.md](docs/RELEASE_GATES.md) for exactly what is
+and isn't met.
+
+## Quick start
+
+```bash
+docker compose up --build      # then open http://localhost:3000
+```
+
+Then follow the [6-minute demo script](docs/DEMO.md).
 
 ## Layout
 
 ```
 apps/web/          Next.js 16 + TypeScript + Tailwind
   lib/             encoding.ts (kg-auth-v1), crypto.ts (Web Crypto), keystore.ts (IndexedDB), auth-flow.ts, api.ts
-  tests/           node --test (encoding vectors, Web Crypto interop)
+  tests/           node --test (encoding vectors, Web Crypto interop, helpers, API client)
+  e2e/             Playwright (owner journey, tampering, isolation, accessibility)
 services/api/      FastAPI backend
   app/security/    protocol.py (kg-auth-v1 + ECDSA verify), challenges.py (atomic consume), authenticate.py (decision engine),
                    labs.py, keys.py, events.py, ratelimit.py, cleanup.py
@@ -25,7 +42,7 @@ services/api/      FastAPI backend
 docs/              spec, review, threat model, decisions, test evidence, test vectors
 ```
 
-## Setup
+## Setup without Docker
 
 Requires [uv](https://docs.astral.sh/uv/) (it provides Python 3.12) and Node 24+.
 
@@ -40,8 +57,9 @@ uv run uvicorn app.main:create_app --factory --reload --port 8000
 ```bash
 cd apps/web
 npm install
-npm test             # TS encoder + Web Crypto tests
+npm test             # unit tests
 npm run dev          # http://localhost:3000
+npx playwright install chromium && npm run e2e   # real-browser tests (starts its own API and web server)
 ```
 
 ## Implemented API
@@ -70,6 +88,12 @@ background cleanup task (`KEYGUARD_CLEANUP_INTERVAL`, default 300 s).
 
 ## Docs
 
+- [Product requirements and status](docs/PRD.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Release gates](docs/RELEASE_GATES.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Demo script](docs/DEMO.md)
+- [Usability and accessibility](docs/USABILITY.md)
 - [Requirements review and sprint plan](docs/REQUIREMENTS_REVIEW.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Decisions](docs/DECISIONS.md)

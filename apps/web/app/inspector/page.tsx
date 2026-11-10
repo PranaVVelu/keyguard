@@ -76,8 +76,8 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
 }
 
 export default function InspectorPage() {
-  const { session, ready, start, end } = useLab();
-  const { vehicle, usable, refresh } = useLabKeys(session, end);
+  const { session, ready, start, end, lost, notice } = useLab();
+  const { vehicle, usable, refresh } = useLabKeys(session, lost);
   const [selectedKey, setSelectedKey] = useState("");
   const [action, setAction] = useState<Action>("unlock");
   const [art, setArt] = useState<FlowArtifacts | null>(null);
@@ -149,11 +149,11 @@ export default function InspectorPage() {
       </header>
 
       {!ready ? null : !session ? (
-        <StartLab onStart={onStart} busy={busy} error={error} />
+        <StartLab onStart={onStart} busy={busy} error={error} notice={notice} />
       ) : usable.length === 0 ? (
         <p className="text-sm">
           No usable key in this browser.{" "}
-          <Link href="/keys" className="text-accent underline-offset-4 hover:underline">
+          <Link href="/keys" className="text-accent underline underline-offset-4">
             Enroll a key
           </Link>{" "}
           to inspect an exchange.
