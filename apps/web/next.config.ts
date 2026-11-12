@@ -3,7 +3,9 @@ import type { NextConfig } from "next";
 // Security headers for production builds (docs/DECISIONS.md D-013). Development is left alone so hot reload
 // (which needs eval and websockets) keeps working; the Playwright suite runs a production build, so every e2e
 // test exercises this policy.
-const API_ORIGIN = new URL(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").origin;
+// NEXT_PUBLIC_API_URL empty or "same-origin" means same-origin proxy mode: the browser only ever talks to this origin.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_ORIGIN = API_URL && API_URL !== "same-origin" ? new URL(API_URL).origin : "";
 
 export const CSP = [
   "default-src 'self'",
@@ -13,7 +15,7 @@ export const CSP = [
   "img-src 'self' data:",
   "font-src 'self'",
   // The only place this page may send data: itself and the KeyGuard API. Blocks exfiltration to other hosts.
-  `connect-src 'self' ${API_ORIGIN}`,
+  `connect-src 'self'${API_ORIGIN ? ` ${API_ORIGIN}` : ""}`,
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",

@@ -1,0 +1,31 @@
+# Render Blueprint for the KeyGuard API (free plan). See docs/DEPLOY_FREE.md.
+# The web app is deployed separately on Vercel; the browser only talks to the Vercel origin, which proxies /api/*
+# here with KEYGUARD_PROXY_SECRET (D-013). Values marked sync: false are entered in the Render dashboard.
+services:
+  - type: web
+    name: keyguard-api
+    runtime: docker
+    rootDir: services/api # also limits auto-deploys to changes under this folder
+    dockerfilePath: ./services/api/Dockerfile # Blueprint paths are relative to the repo root
+    dockerContext: ./services/api
+    plan: free
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass # deploy main only after CI (tests, matrix, e2e) passes
+    branch: main
+    envVars:
+      - key: KEYGUARD_ENV
+        value: production
+      - key: KEYGUARD_DATABASE_URL
+        sync: false # Neon connection string, e.g. postgresql://USER:PASSWORD@HOST/keyguard?sslmode=require
+      - key: KEYGUARD_WEB_ORIGIN
+        sync: false # https://<your-project>.vercel.app
+      - key: KEYGUARD_RP_ID
+        sync: false # <your-project>.vercel.app (passkeys are bound to this)
+      - key: KEYGUARD_PROXY_SECRET
+        generateValue: true # copy this exact value into Vercel's KEYGUARD_PROXY_SECRET
+      - key: KEYGUARD_COOKIE_SECURE
+        value: "1"
+      - key: KEYGUARD_HSTS
+        value: "1"
+      - key: KEYGUARD_RATE_STORE
+        value: database

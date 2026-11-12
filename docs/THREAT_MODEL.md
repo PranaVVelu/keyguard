@@ -63,6 +63,8 @@ counts as demonstrated until a passing test is linked in `SECURITY_TESTS.md`.
 | T22 | CSRF on account actions | T | SameSite=Strict, required `X-KeyGuard-CSRF` header, CORS limited to the web origin | `test_state_changes_require_the_csrf_header` |
 | T23 | Cross-account access to saved labs | I/E | Ownership checked in SQL; uniform `404`; ownership never transfers | `test_saved_labs_are_private_to_their_account` |
 | T24 | Cloned authenticator | S | Sign-counter regression → `PASSKEY_CLONED` | `test_sign_count_regression_is_rejected` |
+| T25 | Going around the web proxy (and per-visitor rate limits) by calling the API directly | D/S | With `KEYGUARD_PROXY_SECRET` set, the API refuses requests without the secret; client-sent proxy headers are stripped; only valid IPs are accepted (D-013) | `test_requests_that_skip_the_proxy_are_refused`, `e2e/proxy.spec.ts` |
+| T26 | Using the proxy to reach other hosts or paths (SSRF or path tricks) | E | Fixed upstream origin; only plain path segments; allow-listed headers; 64 KB body cap | `apps/web/tests/proxy.test.ts`, `e2e/proxy.spec.ts` |
 | T18 | Relay of a passive card (F11) | S | **Out of scope** (non-claim below). Distance bounding and UWB aren't implemented (D-011) | Attack Lab `relay` shows the engine accepting it |
 
 ## Explicit non-claims

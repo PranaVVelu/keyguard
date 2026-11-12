@@ -2,7 +2,9 @@
 
 import type { LabSession } from "./lab-session.ts";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// "same-origin" (or empty) = hosted behind the web app's own /api proxy (D-013); otherwise the API's URL.
+const CONFIGURED_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = CONFIGURED_API === "same-origin" ? "" : CONFIGURED_API;
 
 export class ApiError extends Error {
   readonly status: number;

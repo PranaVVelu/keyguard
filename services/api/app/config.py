@@ -20,7 +20,7 @@ def production_problems(env: Mapping[str, str] = os.environ) -> list[str]:
     """Everything that makes this configuration unsafe for public hosting. Empty means OK."""
     problems: list[str] = []
     db = env.get("KEYGUARD_DATABASE_URL", "")
-    if not db.startswith("postgresql"):
+    if not db.startswith(("postgresql", "postgres://")):
         problems.append("KEYGUARD_DATABASE_URL must be a PostgreSQL URL (SQLite is for local use only)")
     origins = [o.strip() for o in env.get("KEYGUARD_WEB_ORIGIN", "").split(",") if o.strip()]
     if not origins:
@@ -39,9 +39,16 @@ def production_problems(env: Mapping[str, str] = os.environ) -> list[str]:
     if env.get("KEYGUARD_RATE_STORE", "memory") != "database":
         problems.append("KEYGUARD_RATE_STORE=database is required (memory counters are per process)")
     try:
-        parse_trusted_proxies(env.get("KEYGUARD_TRUSTED_PROXIES"))
+        proxies = parse_trusted_proxies(env.get("KEYGUARD_TRUSTED_PROXIES"))
     except ValueError as exc:
         problems.append(f"KEYGUARD_TRUSTED_PROXIES is invalid: {exc}")
+        proxies = None  # already reported; don't also report it as missing
+    secret = env.get("KEYGUARD_PROXY_SECRET", "")
+    if secret and len(secret) < 32:
+        problems.append("KEYGUARD_PROXY_SECRET must be at least 32 characters")
+    if proxies == () and not secret:
+        # Behind any host's load balancer the direct peer is the balancer, so every visitor would share one budget.
+        problems.append("set KEYGUARD_PROXY_SECRET (web proxy mode) or KEYGUARD_TRUSTED_PROXIES so rate limits are per visitor")
     try:
         limits = RateLimits.from_env(env)
         if None in (limits.client, limits.lab_create, limits.lab, limits.auth):

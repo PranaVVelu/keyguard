@@ -1,10 +1,11 @@
 # Security Test Evidence
 
 Last run: 2026-11-12 (Sprint 11), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless; SQLite WAL and PostgreSQL 16).
-**Backend: 386 passed, 0 failed, on SQLite and on PostgreSQL** (`cd services/api && uv run pytest -v`; set
+**Backend: 391 passed, 0 failed, on SQLite and on PostgreSQL** (`cd services/api && uv run pytest -v`; set
 `KEYGUARD_TEST_DATABASE_URL` to a PostgreSQL URL for the second run).
-**Web unit: 69 passed, 0 failed** (`cd apps/web && npm test`).
-**End-to-end: 17 passed, 0 failed** (`cd apps/web && npm run e2e`: real Chromium, real API, production web build under the CSP).
+**Web unit: 73 passed, 0 failed** (`cd apps/web && npm test`).
+**End-to-end: 17 passed in direct mode, 20 in proxy mode, 0 failed** (`cd apps/web && npm run e2e`, then again with
+`KEYGUARD_E2E_MODE=proxy`: real Chromium, real API, production web build under the CSP).
 **Structured matrix: 11/11 pass on both databases**: [SQLite](evidence/matrix-latest.md), [PostgreSQL](evidence/matrix-postgres.md).
 
 CI (`.github/workflows/ci.yml`) runs every suite on every push and PR: pytest, **the structured matrix**, the web unit
@@ -324,6 +325,10 @@ Removing only the up-front ownership check in `save_lab` was not caught, because
 | The production check refuses each unsafe setting individually and lists all of them at once; development is never blocked | `test_each_unsafe_setting_is_reported[…]` (7), `test_development_defaults_are_refused_in_production`, `test_app_refuses_to_start_with_unsafe_production_config` |
 | Health returns 503 without leaking details when the database is down | `test_health_reports_a_broken_database_as_503` |
 | Web production build sends a CSP and related headers; **the whole app runs under it with zero CSP violations**; an injected `fetch` to another host is blocked | `apps/web/e2e/headers.spec.ts`; every other e2e test also runs under the CSP |
+
+| **Free-subdomain proxy mode:** the API refuses requests without the proxy secret (except health) and refuses forged secrets; the proxy-vouched IP is the rate-limit key; `X-Forwarded-For` is ignored in this mode | `test_requests_that_skip_the_proxy_are_refused`, `test_proxy_vouched_ip_is_the_rate_limit_key`, `test_a_non_ip_client_header_falls_back_to_the_peer` |
+| The web proxy forwards only plain path segments to the fixed API origin and only allow-listed headers, and replaces client-sent proxy headers | `apps/web/tests/proxy.test.ts` (4 tests) |
+| **The whole e2e suite passes in proxy mode** (browser → web origin → API with secret): 20 tests, including passkeys and cookies through the proxy. The page contacts only its own origin; path tricks get 400; direct API calls get 403 | `KEYGUARD_E2E_MODE=proxy npm run e2e`; CI runs e2e in both modes |
 
 Mutation check (manual, all reverted). These were each caught:
 - trusting `X-Forwarded-For` from any peer;

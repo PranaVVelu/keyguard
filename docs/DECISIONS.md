@@ -388,3 +388,30 @@ if it fails. That's what a host's health check and uptime alerting should watch.
 it. Mitigations: the CSP blocks third-party scripts and exfiltration to other hosts; React escapes all rendered data;
 labs expire in 24 h and are disposable. Accounts (D-012) already use an HttpOnly cookie. Moving lab tokens into cookies
 too would need a CSRF design for every lab endpoint, and it's left as a follow-up.
+
+### D-013 addendum: free-subdomain hosting through an authenticated web proxy (2026-11-12)
+
+The owner chose free subdomains (Vercel for the web app, Render for the API, Neon for Postgres) over buying a domain.
+`*.vercel.app` and `*.onrender.com` are different sites, so a SameSite=Strict cookie set by the API would never be sent.
+Instead:
+- **Same origin.** The web app serves `/api/*` itself: `app/api/[...path]/route.ts` forwards to
+  `KEYGUARD_API_INTERNAL_URL`. The browser only talks to its own origin, so cookies are first-party and the CSP is
+  `connect-src 'self'`. Set `NEXT_PUBLIC_API_URL=same-origin`.
+- **The proxy forwards only what the API needs.**
+  - Path segments must match `[A-Za-z0-9_-]{1,64}`, at most 8 of them, so `..`, dots and encoded slashes are refused.
+  - Request headers are allow-listed: `authorization`, `content-type`, `cookie` and `x-keyguard-csrf`.
+  - Bodies are capped at 64 KB.
+  - Responses pass back only content type, Retry-After, Cache-Control and Set-Cookie.
+- **The proxy proves itself** with `X-KeyGuard-Proxy-Secret` (at least 32 characters, compared with `compare_digest`).
+  It passes the visitor's IP from the platform header (`x-real-ip` on Vercel, which overwrites any client value) as
+  `X-KeyGuard-Client-IP`.
+- **What the API does with that:**
+  - It uses `X-KeyGuard-Client-IP` as the rate-limit key **only** with a valid secret, and only if it's a valid IP.
+  - When `KEYGUARD_PROXY_SECRET` is set, it **refuses every request without it** (`403 PROXY_REQUIRED`), except
+    `/api/health`. That way nobody can go around the web app's per-visitor limits by calling the API directly.
+- **Production check:** it now requires `KEYGUARD_PROXY_SECRET` or `KEYGUARD_TRUSTED_PROXIES`. Without one of them,
+  every visitor would share the load balancer's single rate-limit budget.
+- **Container:** uvicorn runs with `--no-proxy-headers`, so only the application decides whose `X-Forwarded-For` to
+  believe.
+- **Accepted trade-off:** each request makes one extra hop (Vercel → Render). Free Render instances sleep, so the proxy
+  allows 60 s for a cold start.

@@ -96,7 +96,15 @@ jobs:
       - run: npm run build
 
   e2e:
-    name: End-to-end (Playwright, Chromium)
+    name: End-to-end (Playwright, Chromium, ${{ matrix.mode }} mode)
+    strategy:
+      fail-fast: false
+      matrix:
+        # direct: browser → API (local development). proxy: browser → web origin → API with a shared secret,
+        # exactly how free-subdomain hosting works (D-013).
+        mode: [direct, proxy]
+    env:
+      KEYGUARD_E2E_MODE: ${{ matrix.mode }}
     # Pinned: Playwright 1.56 has no Chromium build for ubuntu-latest (26.04) yet.
     runs-on: ubuntu-24.04
     defaults:
@@ -120,7 +128,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.mode }}
           path: |
             apps/web/playwright-report
             apps/web/test-results

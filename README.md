@@ -29,6 +29,8 @@ docker compose up --build      # then open http://localhost:3000
 
 Then follow the [demo script](docs/DEMO.md).
 
+To host it for free (no domain needed): [docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md) (Vercel + Render + Neon).
+
 ## Layout
 
 ```

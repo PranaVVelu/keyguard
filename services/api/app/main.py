@@ -21,7 +21,14 @@ from app.errors import error_response, install_error_handlers
 from app.routes import account, auth, events, keys, lab, labs
 from app.security.cleanup import run_cleanup
 from app.config import check_production, is_production
-from app.security.ratelimit import DatabaseRateLimiter, RateLimiter, RateLimits, client_address, parse_trusted_proxies
+from app.security.ratelimit import (
+    DatabaseRateLimiter,
+    RateLimiter,
+    RateLimits,
+    client_address,
+    parse_trusted_proxies,
+    proxy_authenticated,
+)
 from starlette.concurrency import run_in_threadpool
 
 log = logging.getLogger("keyguard")
@@ -69,10 +76,21 @@ def create_app(
         raise ValueError(f"KEYGUARD_RATE_STORE must be 'memory' or 'database', not {store!r}")
     app.state.limiter = DatabaseRateLimiter(engine, now_fn) if store == "database" else RateLimiter(now_fn)
     app.state.trusted_proxies = parse_trusted_proxies(os.environ.get("KEYGUARD_TRUSTED_PROXIES"))
+    # Free-subdomain hosting (D-013): when set, every API request except the health check must come through the
+    # web app's proxy, which proves itself with this secret and passes the visitor's IP.
+    app.state.proxy_secret = os.environ.get("KEYGUARD_PROXY_SECRET") or None
     hsts = os.environ.get("KEYGUARD_HSTS") == "1"
 
     @app.middleware("http")
     async def per_client_limit(request: Request, call_next):
+        if (
+            app.state.proxy_secret
+            and request.url.path.startswith("/api/")
+            and request.url.path != "/api/health"
+            and not proxy_authenticated(request)
+        ):
+            # Going around the proxy would also go around per-visitor rate limits.
+            return error_response(403, "PROXY_REQUIRED", "Use the KeyGuard web app")
         if request.url.path.startswith("/api/") and request.method != "OPTIONS":
             # Run in a worker thread: the database store does I/O and must not block the event loop.
             retry = await run_in_threadpool(

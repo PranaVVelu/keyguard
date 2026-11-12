@@ -37,8 +37,16 @@ See the README. In short: `uv sync` plus `uvicorn` for the API, and `npm install
 | `KEYGUARD_ENV` | api | `development` | `production` turns on the startup safety check |
 | `KEYGUARD_RATE_STORE` | api | `memory` | `database` shares counters across workers and instances |
 | `KEYGUARD_TRUSTED_PROXIES` | api | unset | IPs and CIDRs whose `X-Forwarded-For` is believed |
+| `KEYGUARD_PROXY_SECRET` | api, web | unset | Shared secret for the web app's `/api` proxy (free-subdomain mode, D-013) |
+| `KEYGUARD_API_INTERNAL_URL` | web | unset | Where the web proxy forwards `/api/*` (e.g. `https://keyguard-api.onrender.com`) |
+| `KEYGUARD_CLIENT_IP_HEADER` | web | `x-real-ip` | Platform header carrying the visitor's IP |
+| `KEYGUARD_WORKERS` | api (container) | `1` | uvicorn workers (safe above 1 with the database rate store) |
 | `KEYGUARD_HSTS` | api, web (build) | unset | `1` adds Strict-Transport-Security |
 | `NEXT_PUBLIC_API_URL` | web (build) | `http://localhost:8000` | API base URL compiled into the bundle |
+
+## Free hosting (no domain needed)
+
+Step-by-step guide: **[DEPLOY_FREE.md](DEPLOY_FREE.md)** (Vercel + Render + Neon, with a `render.yaml` blueprint).
 
 ## Before any public hosting (release gate, spec §11–12)
 
@@ -66,7 +74,8 @@ KEYGUARD_RP_ID=example.com
 KEYGUARD_COOKIE_SECURE=1
 KEYGUARD_HSTS=1
 KEYGUARD_RATE_STORE=database
-KEYGUARD_TRUSTED_PROXIES=10.0.0.0/8      # the host's load-balancer range
+KEYGUARD_TRUSTED_PROXIES=10.0.0.0/8      # the host's load-balancer range, OR:
+KEYGUARD_PROXY_SECRET=<32+ random chars>  # free-subdomain mode: only the web app's /api proxy may call the API
 ```
 
 Web build: `NEXT_PUBLIC_API_URL=https://api.example.com` and `KEYGUARD_HSTS=1`.

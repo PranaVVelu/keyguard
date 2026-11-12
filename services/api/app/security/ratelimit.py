@@ -15,6 +15,7 @@ import os
 import threading
 from collections.abc import Callable, Mapping
 import hashlib
+import hmac
 import ipaddress
 from dataclasses import dataclass
 
@@ -136,7 +137,26 @@ def resolve_client(peer: str | None, forwarded_for: str | None, proxies: tuple[N
     return hops[0] if hops else peer
 
 
+PROXY_SECRET_HEADER = "x-keyguard-proxy-secret"
+PROXY_CLIENT_HEADER = "x-keyguard-client-ip"
+
+
+def proxy_authenticated(request: Request) -> bool:
+    """True when the request carries the shared secret of KeyGuard's own web proxy (D-013, free-subdomain mode)."""
+    secret = getattr(request.app.state, "proxy_secret", None)
+    presented = request.headers.get(PROXY_SECRET_HEADER, "")
+    return bool(secret) and hmac.compare_digest(presented.encode(), secret.encode())
+
+
 def client_address(request: Request) -> str:
+    # Authenticated-proxy mode: the web app's server-side proxy vouches for the visitor's address. Only a request
+    # that proves it came through that proxy (shared secret) may name a client address, and it must be an IP.
+    if proxy_authenticated(request):
+        claimed = request.headers.get(PROXY_CLIENT_HEADER, "").strip()
+        try:
+            return str(ipaddress.ip_address(claimed))
+        except ValueError:
+            pass
     proxies = getattr(request.app.state, "trusted_proxies", ())
     return resolve_client(
         request.client.host if request.client else None, request.headers.get("x-forwarded-for"), proxies

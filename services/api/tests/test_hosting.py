@@ -248,3 +248,65 @@ def test_health_reports_a_broken_database_as_503(client, monkeypatch):
     resp = client.get("/api/health")
     assert resp.status_code == 503 and resp.json()["error"]["code"] == "DATABASE_UNAVAILABLE"
     assert "secret-host" not in resp.text
+
+
+# --- Free-subdomain mode: the web app's authenticated proxy (D-013) -------------------------------------
+
+SECRET = "s" * 40
+
+
+@pytest.fixture
+def proxied(tmp_path, monkeypatch):
+    monkeypatch.setenv("KEYGUARD_PROXY_SECRET", SECRET)
+    app = create_app(f"sqlite:///{tmp_path / 'px.db'}", clock=lambda: NOW, cleanup_interval=0,
+                     rate_limits=RateLimits(client=None, lab_create=Limit(1, 60), lab=None, auth=None))
+    with TestClient(app) as c:
+        yield c
+    app.state.engine.dispose()
+
+
+def _via_proxy(ip: str, secret: str = SECRET) -> dict:
+    return {"X-KeyGuard-Proxy-Secret": secret, "X-KeyGuard-Client-IP": ip}
+
+
+def test_requests_that_skip_the_proxy_are_refused(proxied):
+    resp = proxied.post("/api/labs")
+    assert resp.status_code == 403 and resp.json()["error"]["code"] == "PROXY_REQUIRED"
+    wrong = proxied.post("/api/labs", headers=_via_proxy("198.51.100.1", secret="t" * 40))
+    assert wrong.status_code == 403
+    # The host's health check still works without the secret.
+    assert proxied.get("/api/health").status_code == 200
+
+
+def test_proxy_vouched_ip_is_the_rate_limit_key(proxied):
+    a, b = _via_proxy("198.51.100.1"), _via_proxy("198.51.100.2")
+    assert proxied.post("/api/labs", headers=a).status_code == 201
+    assert proxied.post("/api/labs", headers=a).status_code == 429
+    assert proxied.post("/api/labs", headers=b).status_code == 201
+    # X-Forwarded-For is not consulted in this mode, so it can't be used to dodge the limit.
+    assert proxied.post("/api/labs", headers={**a, "X-Forwarded-For": "203.0.113.77"}).status_code == 429
+
+
+def test_a_non_ip_client_header_falls_back_to_the_peer(proxied):
+    headers = _via_proxy("not-an-ip")
+    assert proxied.post("/api/labs", headers=headers).status_code == 201
+    # Same fallback key (the TestClient peer) → limited.
+    assert proxied.post("/api/labs", headers=_via_proxy("also bad")).status_code == 429
+
+
+def test_production_needs_a_proxy_secret_or_trusted_proxies():
+    env = {**GOOD}
+    env.pop("KEYGUARD_TRUSTED_PROXIES")
+    assert any("per visitor" in p for p in production_problems(env))
+    assert production_problems({**env, "KEYGUARD_PROXY_SECRET": SECRET}) == []
+    assert any("32 characters" in p for p in production_problems({**env, "KEYGUARD_PROXY_SECRET": "short"}))
+
+
+def test_hosted_postgres_urls_are_normalised():
+    from app.db import normalize_url
+
+    assert normalize_url("postgres://u:p@h/db?sslmode=require") == "postgresql+psycopg://u:p@h/db?sslmode=require"
+    assert normalize_url("postgresql://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert normalize_url("postgresql+psycopg://u@h/db") == "postgresql+psycopg://u@h/db"
+    assert normalize_url("sqlite:///x.db") == "sqlite:///x.db"
+    assert production_problems({**GOOD, "KEYGUARD_DATABASE_URL": "postgres://u:p@h/db"}) == []

@@ -3,3 +3,4 @@ node_modules
 .next-e2e
 test-results
 playwright-report
+.next-e2e-proxy
