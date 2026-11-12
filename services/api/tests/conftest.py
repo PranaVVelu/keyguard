@@ -29,7 +29,9 @@ def client(tmp_path, clock):
 
     from app.main import create_app
 
-    app = create_app(f"sqlite:///{tmp_path / 'kg.db'}", clock=clock, cleanup_interval=0)
+    from app.testing_db import fresh_database_url
+
+    app = create_app(fresh_database_url(tmp_path), clock=clock, cleanup_interval=0)
     with TestClient(app) as c:
         yield c
     app.state.engine.dispose()

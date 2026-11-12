@@ -317,6 +317,8 @@ def delete_account(engine: Engine, *, account_id: str) -> int:
 def save_lab(engine: Engine, *, account_id: str, lab_id: str, now: int) -> None:
     """Attach a lab (already authorized by its bearer token) to this account and extend its retention."""
     with engine.begin() as conn:
+        # Serialize this account's saved-lab limit check (PostgreSQL READ COMMITTED; no-op on SQLite).
+        conn.execute(select(accounts.c.id).where(accounts.c.id == account_id).with_for_update())
         owner = conn.execute(select(labs.c.account_id).where(labs.c.id == lab_id)).scalar_one()
         if owner == account_id:
             conn.execute(update(labs).where(labs.c.id == lab_id).values(expires_at=now + SAVED_LAB_TTL_SECONDS))

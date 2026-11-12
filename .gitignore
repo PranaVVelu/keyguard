@@ -20,3 +20,4 @@ apps/web/next-env.d.ts
 .DS_Store
 matrix.json
 matrix.md
+/services/api/matrix-postgres.*

@@ -324,3 +324,67 @@ sessions, and **every saved lab with all its data**.
 
 **Rate limits:** the existing per-client limit, plus `auth`: 30 requests per 60 s per client for the four WebAuthn
 endpoints.
+
+---
+
+## D-013 Hosting hardening — ACCEPTED (2026-11-12, Sprint 11)
+
+This works through the pre-hosting gates in `DEPLOYMENT.md`. Nothing is deployed yet: choosing a host and creating
+accounts is the project owner's call.
+
+**PostgreSQL is proven, not assumed.** `KEYGUARD_TEST_DATABASE_URL` runs the whole pytest suite and the structured matrix
+against PostgreSQL, with the schema reset per test. CI runs both on every push (new `api-postgres` job, Postgres 17).
+That surfaced two real bugs that SQLite hid, and both are fixed:
+- **32-bit columns.** Timestamps and the fob counter were `INTEGER`. PostgreSQL rejects 2^53 fob counters and any time
+  after January 2038. All time and counter columns are now `BIGINT`; `security_events.seq` stays `INTEGER` on SQLite so
+  it still auto-increments.
+- **Limit checks raced.** Counting and then inserting under READ COMMITTED let 20 simultaneous enrollments create 18 keys
+  against a limit of 10. Fixed with `SELECT … FOR UPDATE`:
+  - on the lab row, for the key limit and the open-challenge limit;
+  - on the account row, for the saved-lab limit.
+
+  SQLite already serializes writes with `BEGIN IMMEDIATE`, and SQLAlchemy omits `FOR UPDATE` there.
+
+The single-use conditional UPDATEs (challenges, fob counters, WebAuthn challenges, saved-lab claims) were already
+correct on PostgreSQL: a concurrent UPDATE waits for the row lock and then re-checks its `WHERE`.
+
+**Shared rate limiting.**
+- `KEYGUARD_RATE_STORE=database` keeps fixed-window counters in a `rate_limit_counters` table. Each hit is one atomic
+  `INSERT … ON CONFLICT DO UPDATE … RETURNING`, so all workers and instances share one count.
+- Keys are stored as SHA-256 hashes, never raw client addresses. Windows older than an hour are cleaned up.
+- No new infrastructure is needed. Redis would only matter at much higher traffic than a demo sees.
+
+**Client address behind proxies.** `KEYGUARD_TRUSTED_PROXIES` takes a comma-separated list of IPs and CIDRs.
+- `X-Forwarded-For` is read **only** when the direct peer is in that list.
+- It's walked from the right, and the first untrusted hop is the client. Anything to its left came from the client
+  itself and is ignored.
+- If the nearest hop is malformed, the proxy's address is used instead.
+
+**Security headers.**
+- **API:** `nosniff`, `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`; on `/api/` also
+  `CSP: default-src 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`; HSTS when `KEYGUARD_HSTS=1`.
+  Interactive API docs are off in production.
+- **Web (production builds):**
+  - a CSP with `connect-src 'self' <API origin>`, `object-src 'none'`, `base-uri 'none'` and `frame-ancestors 'none'`;
+  - `Permissions-Policy`, `nosniff`, `no-referrer` and `DENY`, with no `X-Powered-By`;
+  - HSTS when `KEYGUARD_HSTS=1`.
+- **Accepted limitation:** `script-src` allows `'unsafe-inline'`, because the App Router inlines its bootstrap scripts
+  and a nonce policy needs dynamic rendering. `connect-src` still stops an injected script from *sending* the lab token
+  anywhere except the API (an e2e test checks this). A nonce-based CSP is a follow-up.
+
+**Production safety check.** With `KEYGUARD_ENV=production`, the API refuses to start, listing every problem, unless:
+- the database is PostgreSQL;
+- every web origin is `https://`;
+- `KEYGUARD_RP_ID` is the origin's domain (not localhost);
+- `KEYGUARD_COOKIE_SECURE=1` and `KEYGUARD_HSTS=1` are set;
+- `KEYGUARD_RATE_STORE=database` is set;
+- no rate limit is `off`;
+- the trusted-proxy list parses.
+
+**Health.** `/api/health` now does a database round trip and returns `503 DATABASE_UNAVAILABLE` (with no error detail)
+if it fails. That's what a host's health check and uptime alerting should watch.
+
+**Gate 5 (lab token review):** the lab token stays in `sessionStorage` (D-002). For a public demo the risk is XSS reading
+it. Mitigations: the CSP blocks third-party scripts and exfiltration to other hosts; React escapes all rendered data;
+labs expire in 24 h and are disposable. Accounts (D-012) already use an HttpOnly cookie. Moving lab tokens into cookies
+too would need a CSRF design for every lab endpoint, and it's left as a follow-up.

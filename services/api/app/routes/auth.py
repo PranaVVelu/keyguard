@@ -20,6 +20,7 @@ from app.security.challenges import MAX_OPEN_CHALLENGES_PER_LAB, count_open_chal
 from app.security.events import record_event
 from app.security.fob import press_fob
 from app.security.keys import get_key_auth_info
+from app.security.labs import lock_lab
 from app.security.protocol import PROTOCOL_VERSION
 
 router = APIRouter(prefix="/api/labs")
@@ -48,6 +49,7 @@ def post_challenge(body: ChallengeRequest, request: Request, lab_id: str = Depen
     state = request.app.state
     now = state.clock()
     with state.engine.begin() as conn:
+        lock_lab(conn, lab_id=lab_id)  # serialize the open-challenge limit check (PostgreSQL)
         info = get_key_auth_info(conn, lab_id=lab_id, key_id=body.key_id)
         if info is None:
             code = "KEY_UNKNOWN"

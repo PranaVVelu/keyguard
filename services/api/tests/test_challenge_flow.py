@@ -28,7 +28,9 @@ NOW = 1_793_923_200
 
 @pytest.fixture
 def engine(tmp_path):
-    eng = make_engine(f"sqlite:///{tmp_path / 'kg.db'}")
+    from app.testing_db import fresh_database_url
+
+    eng = make_engine(fresh_database_url(tmp_path))
     yield eng
     eng.dispose()
 

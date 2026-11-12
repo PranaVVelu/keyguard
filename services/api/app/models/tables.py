@@ -1,8 +1,9 @@
-"""Database schema (spec §6). Times are integer Unix seconds from the server clock."""
+"""Database schema (spec §6). Times are 64-bit integer Unix seconds from the server clock (safe past 2038)."""
 
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
     ForeignKey,
@@ -24,7 +25,7 @@ accounts = Table(
     Column("id", String, primary_key=True),
     Column("display_name", String, nullable=False),
     Column("user_handle", LargeBinary(32), nullable=False, unique=True),  # WebAuthn user.id: random, not personal data
-    Column("created_at", Integer, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
 )
 
 labs = Table(
@@ -32,11 +33,11 @@ labs = Table(
     metadata,
     Column("id", String, primary_key=True),
     Column("token_hash", LargeBinary(32), nullable=False),  # SHA-256(lab_token); the token itself is never stored
-    Column("created_at", Integer, nullable=False),
-    Column("expires_at", Integer, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+    Column("expires_at", BigInteger, nullable=False),
     # Saved labs (D-012): the owning account, if any. Ownership never transfers.
     Column("account_id", String, ForeignKey("accounts.id"), index=True),
-    Column("saved_at", Integer),
+    Column("saved_at", BigInteger),
 )
 
 passkeys = Table(
@@ -45,9 +46,9 @@ passkeys = Table(
     Column("id", String, primary_key=True),  # WebAuthn credential ID, base64url
     Column("account_id", String, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("public_key", LargeBinary, nullable=False),  # COSE public key from the attestation
-    Column("sign_count", Integer, nullable=False),
-    Column("created_at", Integer, nullable=False),
-    Column("last_used_at", Integer),
+    Column("sign_count", BigInteger, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+    Column("last_used_at", BigInteger),
 )
 
 webauthn_challenges = Table(
@@ -59,9 +60,9 @@ webauthn_challenges = Table(
     # Registration only: the pending account's details, bound to this challenge.
     Column("display_name", String),
     Column("user_handle", LargeBinary(32)),
-    Column("created_at", Integer, nullable=False),
-    Column("expires_at", Integer, nullable=False),
-    Column("consumed_at", Integer),
+    Column("created_at", BigInteger, nullable=False),
+    Column("expires_at", BigInteger, nullable=False),
+    Column("consumed_at", BigInteger),
     CheckConstraint("purpose IN ('register', 'login')", name="ck_webauthn_purpose"),
 )
 
@@ -71,9 +72,9 @@ sessions = Table(
     Column("id", String, primary_key=True),
     Column("token_hash", LargeBinary(32), nullable=False, unique=True),  # SHA-256 of the cookie value
     Column("account_id", String, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True),
-    Column("created_at", Integer, nullable=False),
-    Column("expires_at", Integer, nullable=False),
-    Column("revoked_at", Integer),
+    Column("created_at", BigInteger, nullable=False),
+    Column("expires_at", BigInteger, nullable=False),
+    Column("revoked_at", BigInteger),
 )
 
 vehicles = Table(
@@ -83,7 +84,7 @@ vehicles = Table(
     Column("lab_id", String, ForeignKey("labs.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("name", String, nullable=False),
     Column("lock_state", String, nullable=False),
-    Column("created_at", Integer, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
     CheckConstraint("lock_state IN ('locked', 'unlocked')", name="ck_vehicle_lock_state"),
 )
 
@@ -99,9 +100,9 @@ digital_keys = Table(
     Column("status", String, nullable=False),
     Column("credential_type", String, nullable=False, server_default="phone"),
     # kg-fob-v1 only: highest counter accepted so far (D-010). Always 0 for phone and card keys.
-    Column("last_counter", Integer, nullable=False, server_default="0"),
-    Column("created_at", Integer, nullable=False),
-    Column("revoked_at", Integer),
+    Column("last_counter", BigInteger, nullable=False, server_default="0"),
+    Column("created_at", BigInteger, nullable=False),
+    Column("revoked_at", BigInteger),
     CheckConstraint("status IN ('active', 'revoked')", name="ck_key_status"),
     CheckConstraint("credential_type IN ('phone', 'card', 'fob')", name="ck_key_credential_type"),
     CheckConstraint("last_counter >= 0", name="ck_key_last_counter"),
@@ -117,9 +118,9 @@ challenges = Table(
     Column("key_id", String, ForeignKey("digital_keys.id", ondelete="CASCADE"), nullable=False),
     Column("nonce", String, nullable=False),
     Column("action", String, nullable=False),
-    Column("created_at", Integer, nullable=False),
-    Column("expires_at", Integer, nullable=False),
-    Column("consumed_at", Integer),
+    Column("created_at", BigInteger, nullable=False),
+    Column("expires_at", BigInteger, nullable=False),
+    Column("consumed_at", BigInteger),
     CheckConstraint("action IN ('unlock', 'lock')", name="ck_challenge_action"),
     Index("ix_challenges_lab_id_id", "lab_id", "id"),
 )
@@ -128,7 +129,8 @@ security_events = Table(
     "security_events",
     metadata,
     # Integer surrogate key gives a stable insertion order for events written in the same second.
-    Column("seq", Integer, primary_key=True, autoincrement=True),
+    # BIGINT on PostgreSQL; plain INTEGER on SQLite, where only "INTEGER PRIMARY KEY" auto-increments.
+    Column("seq", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
     Column("id", String, nullable=False, unique=True),
     Column("lab_id", String, ForeignKey("labs.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("vehicle_id", String),
@@ -137,7 +139,7 @@ security_events = Table(
     Column("outcome", String, nullable=False),
     Column("reason", Text),
     Column("duration_ms", Integer),
-    Column("created_at", Integer, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
 )
 
 lab_runs = Table(
@@ -151,6 +153,17 @@ lab_runs = Table(
     Column("actual_result", String, nullable=False),
     Column("actual_reason", String),
     Column("duration_ms", Integer),
-    Column("created_at", Integer, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
     CheckConstraint("mode IN ('vulnerable', 'hardened')", name="ck_lab_run_mode"),
+)
+
+
+rate_limit_counters = Table(
+    "rate_limit_counters",
+    metadata,
+    # Shared fixed-window counters for DatabaseRateLimiter (D-013). The key is a SHA-256 hash, never a raw address.
+    Column("bucket", String, primary_key=True),
+    Column("key_hash", String(64), primary_key=True),
+    Column("window_start", BigInteger, primary_key=True),
+    Column("count", Integer, nullable=False),
 )
