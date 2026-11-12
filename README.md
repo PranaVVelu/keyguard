@@ -12,6 +12,7 @@ backend makes every decision:
 - **Security Analytics:** a searchable event log with failure categories.
 - **Credential types (F10):** phone, passive key card, and a rolling-counter key fob, each with Attack Lab scenarios.
 - **Proximity (F11, conceptual):** a relay demo showing that a valid signature doesn't prove distance.
+- **Accounts (F12, optional):** sign in with a passkey (no passwords) to save labs for 30 days and reopen them anywhere.
 
 The spec's 11-row mandatory test matrix passes through the real API ([latest evidence](docs/evidence/matrix-latest.md)).
 Real-browser Playwright tests drive the whole journey, and all of it runs in CI.
@@ -81,6 +82,13 @@ npx playwright install chromium && npm run e2e   # real-browser tests (starts it
 | GET | `/api/labs/{id}/lab-runs` | Scenario run history (expected vs actual per mode) |
 | GET | `/api/labs/{id}/events` | Sanitized event history; filter by `category`, `result`, `reason`, `q`; paged |
 | GET | `/api/labs/{id}/events/summary` | Pass/fail per category, failure reasons, authentication timing |
+| POST | `/api/auth/register/options` · `/verify` | Create an account with a passkey (WebAuthn, D-012) |
+| POST | `/api/auth/login/options` · `/verify` | Usernameless passkey sign-in; sets the HttpOnly session cookie |
+| POST | `/api/auth/logout` | Revoke the session |
+| GET | `/api/account` | Account, passkey info and saved labs |
+| POST | `/api/labs/{id}/save` | Save a lab to the account (needs the lab token and a session) |
+| POST | `/api/account/labs/{id}/open` · `/unsave` | Reopen a saved lab (fresh token) or stop saving it |
+| POST | `/api/account/delete` | Delete the account and its saved labs (`{"confirm": "DELETE"}`) |
 | GET | `/api/health` | Liveness check |
 
 Every endpoint is rate limited (`429 RATE_LIMITED` with `Retry-After`; limits are in D-009). Expired labs are deleted by a

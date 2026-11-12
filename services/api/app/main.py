@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import make_engine
 from app.errors import error_response, install_error_handlers
-from app.routes import auth, events, keys, lab, labs
+from app.routes import account, auth, events, keys, lab, labs
 from app.security.cleanup import run_cleanup
 from app.security.ratelimit import RateLimiter, RateLimits, client_address
 
@@ -66,7 +66,8 @@ def create_app(
         CORSMiddleware,
         allow_origins=os.environ.get("KEYGUARD_WEB_ORIGIN", "http://localhost:3000").split(","),
         allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-KeyGuard-CSRF"],
+        allow_credentials=True,  # the account session cookie (D-012); origins are an explicit list, never "*"
         expose_headers=["Retry-After"],
     )
     install_error_handlers(app)
@@ -75,6 +76,7 @@ def create_app(
     app.include_router(auth.router)
     app.include_router(lab.router)
     app.include_router(events.router)
+    app.include_router(account.router)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -87,7 +89,7 @@ async def _cleanup_loop(engine, now_fn: Callable[[], int], interval: int) -> Non
     while True:
         try:
             report = await asyncio.to_thread(run_cleanup, engine, now=now_fn())
-            if report.labs_deleted or report.challenges_deleted or report.events_trimmed:
+            if report.labs_deleted or report.challenges_deleted or report.events_trimmed or report.auth_rows_deleted:
                 log.info("cleanup: %s", report)
         except Exception:  # keep the loop alive; the next pass retries
             log.exception("cleanup pass failed")

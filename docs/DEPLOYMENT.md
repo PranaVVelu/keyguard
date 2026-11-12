@@ -31,6 +31,9 @@ See the README. In short: `uv sync` plus `uvicorn` for the API, and `npm install
 | `KEYGUARD_RATE_CLIENT` | api | `600/60` | Per-client limit on every request (`N/seconds` or `off`) |
 | `KEYGUARD_RATE_LAB_CREATE` | api | `20/60` | Per-client lab creation limit |
 | `KEYGUARD_RATE_LAB` | api | `120/60` | Per-lab limit (counted after authorization) |
+| `KEYGUARD_RP_ID` | api | `localhost` | WebAuthn relying-party ID: the site's registrable domain |
+| `KEYGUARD_COOKIE_SECURE` | api | unset | Set to `1` behind HTTPS so the session cookie gets `Secure` |
+| `KEYGUARD_RATE_AUTH` | api | `30/60` | Per-client limit on the passkey endpoints |
 | `NEXT_PUBLIC_API_URL` | web (build) | `http://localhost:8000` | API base URL compiled into the bundle |
 
 ## Before any public hosting (release gate, spec §11–12)
@@ -55,7 +58,13 @@ Every item must be done and evidenced in `SECURITY_TESTS.md`:
    - alert on 5xx responses, sustained 429s and `LAB_CAPACITY`;
    - check that the cleanup loop runs (log lines `cleanup:`).
 7. **Usability:** run the sessions in `USABILITY.md` and fix what they find.
-8. **Wording:** keep "Fictional vehicles and simulated credentials only" visible on every page (it's in the footer).
+8. **Accounts (D-012):**
+   - **Same site:** serve the web app and API from the **same site** (for example `app.example.com` and
+     `api.example.com`), because the session cookie is SameSite=Strict.
+   - **Relying party:** set `KEYGUARD_RP_ID` to that registrable domain, and set `KEYGUARD_COOKIE_SECURE=1`.
+   - **Passkeys:** passkeys created on `localhost` won't work on the hosted site. That's by design: they're bound to their
+     RP ID.
+9. **Wording:** keep "Fictional vehicles and simulated credentials only" visible on every page (it's in the footer).
 
 The spec suggests Vercel for the web app and a separately hosted API. Either fits once these gates are met. Choosing a
 host and creating accounts is a decision for the project owner.

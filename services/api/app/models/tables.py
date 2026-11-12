@@ -18,6 +18,15 @@ from sqlalchemy import (
 
 metadata = MetaData()
 
+accounts = Table(
+    "accounts",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("display_name", String, nullable=False),
+    Column("user_handle", LargeBinary(32), nullable=False, unique=True),  # WebAuthn user.id: random, not personal data
+    Column("created_at", Integer, nullable=False),
+)
+
 labs = Table(
     "labs",
     metadata,
@@ -25,6 +34,46 @@ labs = Table(
     Column("token_hash", LargeBinary(32), nullable=False),  # SHA-256(lab_token); the token itself is never stored
     Column("created_at", Integer, nullable=False),
     Column("expires_at", Integer, nullable=False),
+    # Saved labs (D-012): the owning account, if any. Ownership never transfers.
+    Column("account_id", String, ForeignKey("accounts.id"), index=True),
+    Column("saved_at", Integer),
+)
+
+passkeys = Table(
+    "passkeys",
+    metadata,
+    Column("id", String, primary_key=True),  # WebAuthn credential ID, base64url
+    Column("account_id", String, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("public_key", LargeBinary, nullable=False),  # COSE public key from the attestation
+    Column("sign_count", Integer, nullable=False),
+    Column("created_at", Integer, nullable=False),
+    Column("last_used_at", Integer),
+)
+
+webauthn_challenges = Table(
+    "webauthn_challenges",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("purpose", String, nullable=False),
+    Column("challenge", LargeBinary(32), nullable=False),
+    # Registration only: the pending account's details, bound to this challenge.
+    Column("display_name", String),
+    Column("user_handle", LargeBinary(32)),
+    Column("created_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
+    Column("consumed_at", Integer),
+    CheckConstraint("purpose IN ('register', 'login')", name="ck_webauthn_purpose"),
+)
+
+sessions = Table(
+    "sessions",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("token_hash", LargeBinary(32), nullable=False, unique=True),  # SHA-256 of the cookie value
+    Column("account_id", String, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("created_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
+    Column("revoked_at", Integer),
 )
 
 vehicles = Table(

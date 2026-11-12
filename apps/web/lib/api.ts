@@ -34,17 +34,24 @@ export interface DigitalKey {
   revoked_at: number | null;
 }
 
-async function request<T>(path: string, init: RequestInit & { session?: LabSession } = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.session) headers.set("Authorization", `Bearer ${init.session.labToken}`);
-  if (init.body) headers.set("Content-Type", "application/json");
+async function request<T>(
+  path: string,
+  init: RequestInit & { session?: LabSession; account?: boolean } = {},
+): Promise<T> {
+  const { session, account, ...rest } = init;
+  const headers = new Headers(rest.headers);
+  if (session) headers.set("Authorization", `Bearer ${session.labToken}`);
+  if (rest.body) headers.set("Content-Type", "application/json");
+  // Account calls carry the HttpOnly session cookie and the CSRF header the API requires (D-012).
+  if (account) headers.set("X-KeyGuard-CSRF", "1");
 
   let resp: Response;
   try {
-    resp = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    resp = await fetch(`${API_BASE}${path}`, { ...rest, headers, ...(account ? { credentials: "include" as const } : {}) });
   } catch {
     throw new ApiError(0, "NETWORK_ERROR", `Could not reach the API at ${API_BASE}`);
   }
+  if (resp.status === 204) return undefined as T;
   const body = await resp.json().catch(() => null);
   if (!resp.ok) {
     const err = body?.error;
@@ -280,4 +287,80 @@ export async function pressFob(
       signature: input.signature,
     }),
   });
+}
+
+// --- Accounts, passkeys and saved labs (F12, D-012) -----------------------------------------------
+
+export interface SavedLab {
+  lab_id: string;
+  saved_at: number | null;
+  expires_at: number;
+  vehicle_name: string;
+  lock_state: string;
+  event_count: number;
+}
+
+export interface AccountSummary {
+  account: { id: string; display_name: string; created_at: number };
+  passkeys: { id_prefix: string; created_at: number; last_used_at: number | null }[];
+  saved_labs: SavedLab[];
+}
+
+export interface WebAuthnOptions {
+  challenge_id: string;
+  options: Record<string, unknown>;
+}
+
+/** The signed-in account, or null when there's no valid session. */
+export async function getAccount(): Promise<AccountSummary | null> {
+  try {
+    return await request<AccountSummary>("/api/account", { account: true });
+  } catch (e) {
+    if (e instanceof ApiError && e.code === "NOT_SIGNED_IN") return null;
+    throw e;
+  }
+}
+
+export function registerOptions(displayName: string): Promise<WebAuthnOptions> {
+  return request("/api/auth/register/options", { method: "POST", account: true, body: JSON.stringify({ display_name: displayName }) });
+}
+
+export function registerVerify(challengeId: string, credential: unknown): Promise<AccountSummary> {
+  return request("/api/auth/register/verify", {
+    method: "POST", account: true, body: JSON.stringify({ challenge_id: challengeId, credential }),
+  });
+}
+
+export function loginOptions(): Promise<WebAuthnOptions> {
+  return request("/api/auth/login/options", { method: "POST", account: true });
+}
+
+export function loginVerify(challengeId: string, credential: unknown): Promise<AccountSummary> {
+  return request("/api/auth/login/verify", {
+    method: "POST", account: true, body: JSON.stringify({ challenge_id: challengeId, credential }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return request("/api/auth/logout", { method: "POST", account: true });
+}
+
+export function deleteAccount(): Promise<void> {
+  return request("/api/account/delete", { method: "POST", account: true, body: JSON.stringify({ confirm: "DELETE" }) });
+}
+
+export function saveLab(session: LabSession): Promise<AccountSummary> {
+  return request(`/api/labs/${session.labId}/save`, { method: "POST", account: true, session });
+}
+
+export async function openSavedLab(labId: string): Promise<LabSession> {
+  const r = await request<{ lab_id: string; lab_token: string; expires_at: number }>(
+    `/api/account/labs/${encodeURIComponent(labId)}/open`,
+    { method: "POST", account: true },
+  );
+  return { labId: r.lab_id, labToken: r.lab_token, expiresAt: r.expires_at };
+}
+
+export function unsaveLab(labId: string): Promise<AccountSummary> {
+  return request(`/api/account/labs/${encodeURIComponent(labId)}/unsave`, { method: "POST", account: true });
 }

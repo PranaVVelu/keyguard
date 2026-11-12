@@ -55,11 +55,14 @@ export function listKeysForLab(labId: string): Promise<StoredKey[]> {
   return run("readonly", (s) => s.index("labId").getAll(labId) as IDBRequest<StoredKey[]>);
 }
 
-/** Delete keys belonging to any other lab. Old labs are unreachable once their session token is gone. */
-export async function purgeOtherLabs(labId: string): Promise<void> {
+/**
+ * Delete keys belonging to any other lab, except labs saved to the signed-in account (`keep`, D-012).
+ * An unsaved lab is unreachable once its session token is gone, so its keys are useless.
+ */
+export async function purgeOtherLabs(labId: string, keep: readonly string[] = []): Promise<void> {
   const all = await run("readonly", (s) => s.getAll() as IDBRequest<StoredKey[]>);
   for (const k of all) {
-    if (k.labId !== labId) await run("readwrite", (s) => s.delete(k.keyId));
+    if (k.labId !== labId && !keep.includes(k.labId)) await run("readwrite", (s) => s.delete(k.keyId));
   }
 }
 

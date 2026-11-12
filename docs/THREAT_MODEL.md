@@ -57,6 +57,12 @@ counts as demonstrated until a passing test is linked in `SECURITY_TESTS.md`.
 | T15 | Replayed key-fob press (F10) | S | kg-fob-v1 counter must rise; advanced only by a valid signature, in one conditional UPDATE (D-010) | `test_fob_api.py` (replay, window, concurrency, junk can't burn the counter); Attack Lab `fob-replay` |
 | T16 | Protocol confusion between credential types | S/E | Separate domain tags; the challenge endpoint and engine refuse fob keys, and the fob endpoint refuses phone and card keys | `test_fob_api.py` cross-protocol tests |
 | T17 | Fob press captured before it reached the car | S | **Not mitigated by design.** Counters can't detect it; challenge-response credentials avoid it (D-010) | Attack Lab `fob-capture` shows the engine accepting it |
+| T19 | Passkey phishing or a credential replayed on another site | S | WebAuthn origin and RP ID checks (D-012) | `test_accounts_api.py`: wrong origin and wrong RP ID rejected |
+| T20 | Replayed WebAuthn response | S | Single-use, 5-minute, purpose-bound challenges (conditional UPDATE) | replay and wrong-purpose tests |
+| T21 | Session theft or reuse | S/I | HttpOnly cookie, hashed token, 12 h expiry, logout revokes | session tests; e2e checks the cookie isn't readable by script |
+| T22 | CSRF on account actions | T | SameSite=Strict, required `X-KeyGuard-CSRF` header, CORS limited to the web origin | `test_state_changes_require_the_csrf_header` |
+| T23 | Cross-account access to saved labs | I/E | Ownership checked in SQL; uniform `404`; ownership never transfers | `test_saved_labs_are_private_to_their_account` |
+| T24 | Cloned authenticator | S | Sign-counter regression → `PASSKEY_CLONED` | `test_sign_count_regression_is_rejected` |
 | T18 | Relay of a passive card (F11) | S | **Out of scope** (non-claim below). Distance bounding and UWB aren't implemented (D-011) | Attack Lab `relay` shows the engine accepting it |
 
 ## Explicit non-claims

@@ -10,6 +10,7 @@ const NAV = [
   { href: "/lab", label: "Attack Lab" },
   { href: "/proximity", label: "Proximity" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/account", label: "Account" },
 ] as const;
 
 export function Nav() {

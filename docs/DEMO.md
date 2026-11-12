@@ -18,7 +18,8 @@ compose up --build`, or the two dev servers from the README) and open http://loc
 | 11 | **Digital Keys → Key fob → enroll**, then **Garage → Press unlock / Press lock** | No challenge: the trace shows the counter rising (0 → 1 → 2). The car remembers the highest counter it has seen. |
 | 12 | **Attack Lab → fob replay, then fob capture** | A replayed press is refused (`COUNTER_REPLAYED`). A press captured before the car saw it is **accepted** by the real engine, labelled as a known limitation. That's why phones and cards use challenges. |
 | 13 | **Proximity → Run the relay on the real backend** | Drag the slider anywhere: the server allows the relayed card unlock regardless. A valid signature doesn't prove the key is near the car. |
-| 14 | (Optional) the evidence | `docs/evidence/matrix-latest.md`: 11/11 mandatory rows with timing. In GitHub Actions, the matrix table is in the run summary. |
+| 14 | **Account → Create passkey**, then **Save current lab** | No password or email. Your OS passkey prompt appears. The session cookie is HttpOnly. Sign out, sign back in without typing anything, and reopen the lab: it gets a fresh token. |
+| 15 | (Optional) the evidence | `docs/evidence/matrix-latest.md`: 11/11 mandatory rows with timing. In GitHub Actions, the matrix table is in the run summary. |
 
 ## Talking points on limits (say these out loud)
 
