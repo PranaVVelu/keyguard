@@ -125,8 +125,10 @@ These are layered so that no single client can exhaust the demo:
 
 ## Known architectural limits
 
-- SQLite only. PostgreSQL is the documented hosted target, but concurrency must be re-verified on it first.
-- Rate-limit counters are per process, and the client address is the direct peer (D-009).
+- Both SQLite (local) and PostgreSQL (hosted) are tested in CI. Attack Lab scenarios always run on disposable,
+  temporary SQLite files, even when the main database is PostgreSQL.
+- Limit checks lock the lab or account row (`SELECT … FOR UPDATE`) so they hold under PostgreSQL concurrency (D-013).
+- Rate limiting is per process by default; `KEYGUARD_RATE_STORE=database` shares it (D-013).
 - The lab token lives in `sessionStorage`, so any script on the origin can read it. This is an accepted demo limitation
   (D-002 / O-3).
 - There are no migrations: a stale schema is refused, and lab data is disposable.

@@ -33,6 +33,7 @@ test("no WCAG A/AA violations on the account page", async ({ page }) => {
 test("no WCAG A/AA violations with real data on every page", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a lab" }).click();
+  await expect(page.getByRole("button", { name: "End lab" })).toBeVisible();
   const nav = (name: string) =>
     page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name, exact: true }).click();
 
@@ -84,6 +85,8 @@ test("the core journey works with the keyboard alone", async ({ page }) => {
     await page.keyboard.press(key);
   };
   await focusAndPress(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Digital Keys" }));
+  // The enroll button stays disabled until the vehicle has loaded from the API; wait for it like a user would.
+  await expect(page.getByRole("button", { name: "Generate & enroll key" })).toBeEnabled();
   await page.getByLabel("Label").focus();
   await page.keyboard.type("Keyboard key");
   await page.keyboard.press("Enter"); // submits the enrollment form

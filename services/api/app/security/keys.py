@@ -8,6 +8,7 @@ from sqlalchemy import Connection, and_, func, insert, select, update
 
 from app.models.tables import digital_keys, vehicles
 from app.security.encoding import b64url_encode, new_id
+from app.security.labs import lock_lab
 from app.security.protocol import fingerprint, load_public_key
 
 MAX_KEYS_PER_LAB = 10
@@ -52,6 +53,7 @@ def enroll_key(
         raise EnrollmentError("CREDENTIAL_TYPE_INVALID")
     _, der = load_public_key(spki_b64url)
     fp = fingerprint(der)
+    lock_lab(conn, lab_id=lab_id)  # the key-limit and duplicate checks below must not race
 
     vehicle_in_lab = conn.execute(
         select(vehicles.c.id).where(and_(vehicles.c.id == vehicle_id, vehicles.c.lab_id == lab_id))

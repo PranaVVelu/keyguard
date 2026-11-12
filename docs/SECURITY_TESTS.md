@@ -1,10 +1,12 @@
 # Security Test Evidence
 
-Last run: 2026-11-12 (Sprint 10), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless, SQLite WAL).
-**Backend: 215 passed, 0 failed** (`cd services/api && uv run pytest -v`).
-**Web unit: 50 passed, 0 failed** (`cd apps/web && npm test`).
-**End-to-end: 7 passed, 0 failed** (`cd apps/web && npm run e2e`: real Chromium, real API, production web build).
-**Structured matrix: 11/11 pass**: [`docs/evidence/matrix-latest.md`](evidence/matrix-latest.md) (JSON alongside).
+Last run: 2026-11-12 (Sprint 11), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless; SQLite WAL and PostgreSQL 16).
+**Backend: 397 passed, 0 failed, on SQLite and on PostgreSQL** (`cd services/api && uv run pytest -v`; set
+`KEYGUARD_TEST_DATABASE_URL` to a PostgreSQL URL for the second run).
+**Web unit: 73 passed, 0 failed** (`cd apps/web && npm test`).
+**End-to-end: 17 passed in direct mode, 20 in proxy mode, 0 failed** (`cd apps/web && npm run e2e`, then again with
+`KEYGUARD_E2E_MODE=proxy`: real Chromium, real API, production web build under the CSP).
+**Structured matrix: 11/11 pass on both databases**: [SQLite](evidence/matrix-latest.md), [PostgreSQL](evidence/matrix-postgres.md).
 
 CI (`.github/workflows/ci.yml`) runs every suite on every push and PR: pytest, **the structured matrix**, the web unit
 tests and build, **Playwright end-to-end**, and a **Docker** build and smoke test. The matrix table
@@ -310,10 +312,40 @@ Mutation check (manual, all reverted). These were each caught:
 Removing only the up-front ownership check in `save_lab` was not caught, because the atomic claim
 (`WHERE account_id IS NULL`) still blocks a takeover. Removing both was caught.
 
+## Sprint 11: hosting hardening (D-013)
+
+| Property | Evidence |
+|----------|----------|
+| **Whole suite on PostgreSQL** (386 tests) and **matrix 11/11 on PostgreSQL, incl. MX-08** (16 concurrent submissions → 1 allow) | CI job `api-postgres`; local run on PostgreSQL 16 ([evidence](evidence/matrix-postgres.md)) |
+| Fob counters up to 2^53 − 1 and timestamps after 2038 are stored (**both failed on PostgreSQL before the BIGINT fix**) | `test_fob_counter_holds_values_up_to_2_pow_53`, `test_timestamps_after_2038_are_stored` |
+| Key, open-challenge and saved-lab limits hold under 15–40 concurrent requests (**18 keys against a limit of 10 on PostgreSQL before the row locks**) | `test_*_limit_holds_under_concurrent_*` (3 tests). With either lock removed, its test fails on PostgreSQL |
+| Trusted proxies: `X-Forwarded-For` is read only from trusted peers, right to left; prepended fake hops are ignored; malformed chains fall back to the proxy | `test_resolve_client[…]` (10 cases), `test_rate_limit_key_comes_from_the_trusted_chain` |
+| Database rate limiter: shared between two limiter instances, exact under 40-way concurrency, hashed keys only, old windows cleaned | `test_database_limiter_*` (4 tests), `test_app_with_database_rate_store_enforces_limits` |
+| API security headers on every response (errors included); HSTS only when enabled; no interactive docs in production | `test_api_responses_carry_security_headers`, `test_hsts_when_enabled`, `test_production_disables_interactive_docs` |
+| The production check refuses each unsafe setting individually and lists all of them at once; development is never blocked | `test_each_unsafe_setting_is_reported[…]` (7), `test_development_defaults_are_refused_in_production`, `test_app_refuses_to_start_with_unsafe_production_config` |
+| Health returns 503 without leaking details when the database is down | `test_health_reports_a_broken_database_as_503` |
+| Web production build sends a CSP and related headers; **the whole app runs under it with zero CSP violations**; an injected `fetch` to another host is blocked | `apps/web/e2e/headers.spec.ts`; every other e2e test also runs under the CSP |
+
+| **Free-subdomain proxy mode:** the API refuses requests without the proxy secret (except health) and refuses forged secrets; the proxy-vouched IP is the rate-limit key; `X-Forwarded-For` is ignored in this mode | `test_requests_that_skip_the_proxy_are_refused`, `test_proxy_vouched_ip_is_the_rate_limit_key`, `test_a_non_ip_client_header_falls_back_to_the_peer` |
+| The web proxy forwards only plain path segments to the fixed API origin and only allow-listed headers, and replaces client-sent proxy headers | `apps/web/tests/proxy.test.ts` (4 tests) |
+| **The whole e2e suite passes in proxy mode** (browser → web origin → API with secret): 20 tests, including passkeys and cookies through the proxy. The page contacts only its own origin; path tricks get 400; direct API calls get 403 | `KEYGUARD_E2E_MODE=proxy npm run e2e`; CI runs e2e in both modes |
+
+| **Vercel Services mode:** the edge's `x-real-ip` is the rate-limit key and `X-Forwarded-For` is ignored; an invalid header falls back to the peer; the cron cleanup endpoint is inert without `CRON_SECRET` and refuses a wrong bearer; `DATABASE_URL` fallback; the Vercel production config passes only with `CRON_SECRET`; the ASGI entry point boots | `test_platform_ip_header_is_the_rate_limit_key`, `test_invalid_platform_header_falls_back_to_the_peer`, `test_cron_cleanup_requires_the_secret`, `test_database_url_falls_back_to_neons_variable`, `test_vercel_production_config`, `test_asgi_entrypoint_builds_the_app` |
+| `vercel.json` services and routing work: checked with `vercel dev --local` (CLI 65.15). Both services start, `/api/*` reaches FastAPI with the original path, and start lab → enroll → unlock is ALLOWED with the page contacting only its own origin | manual, 2026-11-12 |
+
+Mutation check (manual, all reverted). These were each caught:
+- trusting `X-Forwarded-For` from any peer;
+- reading it left to right;
+- an off-by-one in the database limiter;
+- storing raw keys;
+- HSTS always on;
+- allowing the memory store in production;
+- removing the lab-row lock (on PostgreSQL);
+- removing the account-row lock (on PostgreSQL).
+
 ## Known gaps
 
 - Usability sessions with real participants (spec §11 targets) have not been run; see `USABILITY.md`.
 - The CI API job has no Node, so the *fresh* interop test is skipped there; the committed vector still runs.
-- The concurrency test is proven on SQLite only. PostgreSQL must be re-verified before hosting.
-- Rate-limit counters are per process, and the client key is the direct peer address (D-009). Both must change
-  before a multi-worker or proxied deployment.
+- The web CSP still allows inline scripts (`'unsafe-inline'`); a nonce-based policy is a follow-up (D-013).
+- Alerting is the host's job and isn't configured, because nothing is deployed yet.

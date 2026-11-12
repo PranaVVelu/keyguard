@@ -324,3 +324,113 @@ sessions, and **every saved lab with all its data**.
 
 **Rate limits:** the existing per-client limit, plus `auth`: 30 requests per 60 s per client for the four WebAuthn
 endpoints.
+
+---
+
+## D-013 Hosting hardening — ACCEPTED (2026-11-12, Sprint 11)
+
+This works through the pre-hosting gates in `DEPLOYMENT.md`. Nothing is deployed yet: choosing a host and creating
+accounts is the project owner's call.
+
+**PostgreSQL is proven, not assumed.** `KEYGUARD_TEST_DATABASE_URL` runs the whole pytest suite and the structured matrix
+against PostgreSQL, with the schema reset per test. CI runs both on every push (new `api-postgres` job, Postgres 17).
+That surfaced two real bugs that SQLite hid, and both are fixed:
+- **32-bit columns.** Timestamps and the fob counter were `INTEGER`. PostgreSQL rejects 2^53 fob counters and any time
+  after January 2038. All time and counter columns are now `BIGINT`; `security_events.seq` stays `INTEGER` on SQLite so
+  it still auto-increments.
+- **Limit checks raced.** Counting and then inserting under READ COMMITTED let 20 simultaneous enrollments create 18 keys
+  against a limit of 10. Fixed with `SELECT … FOR UPDATE`:
+  - on the lab row, for the key limit and the open-challenge limit;
+  - on the account row, for the saved-lab limit.
+
+  SQLite already serializes writes with `BEGIN IMMEDIATE`, and SQLAlchemy omits `FOR UPDATE` there.
+
+The single-use conditional UPDATEs (challenges, fob counters, WebAuthn challenges, saved-lab claims) were already
+correct on PostgreSQL: a concurrent UPDATE waits for the row lock and then re-checks its `WHERE`.
+
+**Shared rate limiting.**
+- `KEYGUARD_RATE_STORE=database` keeps fixed-window counters in a `rate_limit_counters` table. Each hit is one atomic
+  `INSERT … ON CONFLICT DO UPDATE … RETURNING`, so all workers and instances share one count.
+- Keys are stored as SHA-256 hashes, never raw client addresses. Windows older than an hour are cleaned up.
+- No new infrastructure is needed. Redis would only matter at much higher traffic than a demo sees.
+
+**Client address behind proxies.** `KEYGUARD_TRUSTED_PROXIES` takes a comma-separated list of IPs and CIDRs.
+- `X-Forwarded-For` is read **only** when the direct peer is in that list.
+- It's walked from the right, and the first untrusted hop is the client. Anything to its left came from the client
+  itself and is ignored.
+- If the nearest hop is malformed, the proxy's address is used instead.
+
+**Security headers.**
+- **API:** `nosniff`, `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`; on `/api/` also
+  `CSP: default-src 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`; HSTS when `KEYGUARD_HSTS=1`.
+  Interactive API docs are off in production.
+- **Web (production builds):**
+  - a CSP with `connect-src 'self' <API origin>`, `object-src 'none'`, `base-uri 'none'` and `frame-ancestors 'none'`;
+  - `Permissions-Policy`, `nosniff`, `no-referrer` and `DENY`, with no `X-Powered-By`;
+  - HSTS when `KEYGUARD_HSTS=1`.
+- **Accepted limitation:** `script-src` allows `'unsafe-inline'`, because the App Router inlines its bootstrap scripts
+  and a nonce policy needs dynamic rendering. `connect-src` still stops an injected script from *sending* the lab token
+  anywhere except the API (an e2e test checks this). A nonce-based CSP is a follow-up.
+
+**Production safety check.** With `KEYGUARD_ENV=production`, the API refuses to start, listing every problem, unless:
+- the database is PostgreSQL;
+- every web origin is `https://`;
+- `KEYGUARD_RP_ID` is the origin's domain (not localhost);
+- `KEYGUARD_COOKIE_SECURE=1` and `KEYGUARD_HSTS=1` are set;
+- `KEYGUARD_RATE_STORE=database` is set;
+- no rate limit is `off`;
+- the trusted-proxy list parses.
+
+**Health.** `/api/health` now does a database round trip and returns `503 DATABASE_UNAVAILABLE` (with no error detail)
+if it fails. That's what a host's health check and uptime alerting should watch.
+
+**Gate 5 (lab token review):** the lab token stays in `sessionStorage` (D-002). For a public demo the risk is XSS reading
+it. Mitigations: the CSP blocks third-party scripts and exfiltration to other hosts; React escapes all rendered data;
+labs expire in 24 h and are disposable. Accounts (D-012) already use an HttpOnly cookie. Moving lab tokens into cookies
+too would need a CSRF design for every lab endpoint, and it's left as a follow-up.
+
+### D-013 addendum: free-subdomain hosting through an authenticated web proxy (2026-11-12)
+
+The owner chose free subdomains (Vercel for the web app, Render for the API, Neon for Postgres) over buying a domain.
+`*.vercel.app` and `*.onrender.com` are different sites, so a SameSite=Strict cookie set by the API would never be sent.
+Instead:
+- **Same origin.** The web app serves `/api/*` itself: `app/api/[...path]/route.ts` forwards to
+  `KEYGUARD_API_INTERNAL_URL`. The browser only talks to its own origin, so cookies are first-party and the CSP is
+  `connect-src 'self'`. Set `NEXT_PUBLIC_API_URL=same-origin`.
+- **The proxy forwards only what the API needs.**
+  - Path segments must match `[A-Za-z0-9_-]{1,64}`, at most 8 of them, so `..`, dots and encoded slashes are refused.
+  - Request headers are allow-listed: `authorization`, `content-type`, `cookie` and `x-keyguard-csrf`.
+  - Bodies are capped at 64 KB.
+  - Responses pass back only content type, Retry-After, Cache-Control and Set-Cookie.
+- **The proxy proves itself** with `X-KeyGuard-Proxy-Secret` (at least 32 characters, compared with `compare_digest`).
+  It passes the visitor's IP from the platform header (`x-real-ip` on Vercel, which overwrites any client value) as
+  `X-KeyGuard-Client-IP`.
+- **What the API does with that:**
+  - It uses `X-KeyGuard-Client-IP` as the rate-limit key **only** with a valid secret, and only if it's a valid IP.
+  - When `KEYGUARD_PROXY_SECRET` is set, it **refuses every request without it** (`403 PROXY_REQUIRED`), except
+    `/api/health`. That way nobody can go around the web app's per-visitor limits by calling the API directly.
+- **Production check:** it now requires `KEYGUARD_PROXY_SECRET` or `KEYGUARD_TRUSTED_PROXIES`. Without one of them,
+  every visitor would share the load balancer's single rate-limit budget.
+- **Container:** uvicorn runs with `--no-proxy-headers`, so only the application decides whose `X-Forwarded-For` to
+  believe.
+- **Accepted trade-off:** each request makes one extra hop (Vercel → Render). Free Render instances sleep, so the proxy
+  allows 60 s for a cold start.
+
+### D-013 addendum 2: Vercel Services as the primary free host (2026-11-12)
+
+The owner already uses Vercel and prefers free. [Vercel Services](https://vercel.com/docs/services) (beta, all plans)
+deploys the Next.js app and the FastAPI API in **one project on one origin**. This is now the primary path
+(`vercel.json`); the Render plus web-proxy path stays as a tested alternative.
+- **Routing.** `/api/*` goes to the `api` service, which receives the original path, and everything else goes to `web`.
+  The API service has no other public route.
+- **Client IP.** `KEYGUARD_CLIENT_IP_HEADER=x-real-ip`: the API uses the edge-set header (Vercel overwrites
+  client-supplied values) as the rate-limit key, and only if it's a valid IP. This mode is safe **only** where the edge
+  is the sole way in, and the guide says so. The production check now accepts any one of three modes: the platform
+  header, the proxy secret or trusted proxies.
+- **Cleanup.** Serverless functions don't keep a background loop alive, so `KEYGUARD_CLEANUP_INTERVAL=0` is set and a
+  daily Vercel Cron calls `GET /api/internal/cleanup`. That endpoint needs `Authorization: Bearer $CRON_SECRET`, sent
+  automatically by Vercel, and answers 404 otherwise. The production check requires `CRON_SECRET` when it detects
+  Vercel.
+- **Database.** `DATABASE_URL`, injected by Vercel's Neon integration, is used when `KEYGUARD_DATABASE_URL` isn't set.
+- **Entry point.** `app/asgi.py` exposes a module-level `app` built by the same `create_app()` factory.
+- **Verified** locally with `vercel dev --local`: both services, routing and a full browser flow on one origin.

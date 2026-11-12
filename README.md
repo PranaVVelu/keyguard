@@ -29,6 +29,9 @@ docker compose up --build      # then open http://localhost:3000
 
 Then follow the [demo script](docs/DEMO.md).
 
+To host it for free (no domain needed): [docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md). One Vercel project runs both apps,
+with Neon Postgres added from Vercel's Storage tab.
+
 ## Layout
 
 ```

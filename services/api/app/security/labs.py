@@ -60,3 +60,12 @@ def authorize_lab(conn: Connection, *, lab_id: str, bearer_token: str | None, no
         hmac.compare_digest(presented, b"\x00" * 32)
         return False
     return hmac.compare_digest(presented, row.token_hash) and row.expires_at > now
+
+
+def lock_lab(conn: Connection, *, lab_id: str) -> None:
+    """Serialize count-then-insert limit checks for one lab (keys, open challenges).
+
+    PostgreSQL READ COMMITTED would otherwise let concurrent requests all see the old count and all insert.
+    SQLite writes are already serialized by BEGIN IMMEDIATE, and SQLAlchemy omits FOR UPDATE there.
+    """
+    conn.execute(select(labs.c.id).where(labs.c.id == lab_id).with_for_update())

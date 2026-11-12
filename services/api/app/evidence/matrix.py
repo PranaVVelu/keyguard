@@ -79,7 +79,9 @@ class Driver:
         from app.main import create_app
 
         self.t = START
-        self.app = create_app(f"sqlite:///{tmpdir / 'matrix.db'}", clock=lambda: self.t, cleanup_interval=0)
+        from app.testing_db import fresh_database_url
+
+        self.app = create_app(fresh_database_url(tmpdir, "matrix.db"), clock=lambda: self.t, cleanup_interval=0)
         self.http = TestClient(self.app)
         lab = self.http.post("/api/labs").json()
         self.lab_id, self.token = lab["lab_id"], lab["lab_token"]
@@ -312,6 +314,12 @@ def run_scenario(s: Scenario) -> Result:
     )
 
 
+def target_dialect() -> str:
+    from app.testing_db import target_dialect as _dialect
+
+    return _dialect()
+
+
 def run_matrix(scenarios: tuple[Scenario, ...] = SCENARIOS) -> dict:
     results = [run_scenario(s) for s in scenarios]
     counts: dict[str, int] = {}
@@ -328,11 +336,13 @@ def run_matrix(scenarios: tuple[Scenario, ...] = SCENARIOS) -> dict:
         "git_commit": sha or None,
         "python": platform.python_version(),
         "platform": f"{platform.system()} {platform.machine()}",
+        "database": target_dialect(),
         "summary": {"total": len(results), **counts},
         "results": [asdict(r) for r in results],
         "coverage_note": (
             "Curated scenarios only; passing does not prove universal security. "
-            "Relay/proximity attacks are out of scope. Concurrency proven on SQLite."
+            "Relay/proximity attacks are out of scope. Concurrency is proven on the database named in 'database'; "
+            "CI runs the matrix on both SQLite and PostgreSQL."
         ),
     }
 
@@ -340,7 +350,7 @@ def run_matrix(scenarios: tuple[Scenario, ...] = SCENARIOS) -> dict:
 def to_markdown(report: dict) -> str:
     lines = [
         f"Matrix `{report['matrix']}` · commit `{report['git_commit']}` · {report['generated_at']} · "
-        f"Python {report['python']} · {report['platform']}",
+        f"Python {report['python']} · {report['platform']} · database **{report.get('database', 'sqlite')}**",
         "",
         "| ID | Scenario | Expected | Observed | Reason | Outcome | ms |",
         "|----|----------|----------|----------|--------|---------|----|",

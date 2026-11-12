@@ -15,6 +15,7 @@ from app.models.tables import (
     digital_keys,
     lab_runs,
     labs,
+    rate_limit_counters,
     security_events,
     sessions,
     vehicles,
@@ -74,6 +75,8 @@ def run_cleanup(engine: Engine, *, now: int) -> CleanupReport:
                     security_events.c.lab_id == lab_id, security_events.c.seq.not_in(keep)
                 )
             ).rowcount
+        # Rate-limit windows are at most 60 s; an hour-old counter can never matter again.
+        conn.execute(delete(rate_limit_counters).where(rate_limit_counters.c.window_start < now - 3600))
         auth_rows = conn.execute(delete(webauthn_challenges).where(webauthn_challenges.c.expires_at <= now)).rowcount
         auth_rows += conn.execute(
             delete(sessions).where((sessions.c.expires_at <= now) | sessions.c.revoked_at.is_not(None))
@@ -92,5 +95,7 @@ if __name__ == "__main__":  # pragma: no cover - operational entry point
 
     from app.db import make_engine
 
-    eng = make_engine(os.environ.get("KEYGUARD_DATABASE_URL", "sqlite:///./keyguard.db"))
+    from app.config import database_url
+
+    eng = make_engine(database_url())
     print(run_cleanup(eng, now=int(time.time())))

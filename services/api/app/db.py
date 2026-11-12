@@ -21,9 +21,19 @@ def _create_schema(engine: Engine) -> None:
             )
 
 
+def normalize_url(url: str) -> str:
+    """Hosted Postgres providers hand out `postgres://` or `postgresql://` URLs; use the psycopg 3 driver for both."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 def make_engine(url: str) -> Engine:
+    url = normalize_url(url)
     if not url.startswith("sqlite"):
-        engine = create_engine(url)
+        # pre_ping: serverless Postgres (e.g. Neon) closes idle connections; check before reuse.
+        engine = create_engine(url, pool_pre_ping=True)
         _create_schema(engine)
         return engine
 

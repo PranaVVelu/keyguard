@@ -34,37 +34,56 @@ See the README. In short: `uv sync` plus `uvicorn` for the API, and `npm install
 | `KEYGUARD_RP_ID` | api | `localhost` | WebAuthn relying-party ID: the site's registrable domain |
 | `KEYGUARD_COOKIE_SECURE` | api | unset | Set to `1` behind HTTPS so the session cookie gets `Secure` |
 | `KEYGUARD_RATE_AUTH` | api | `30/60` | Per-client limit on the passkey endpoints |
+| `KEYGUARD_ENV` | api | `development` | `production` turns on the startup safety check |
+| `KEYGUARD_RATE_STORE` | api | `memory` | `database` shares counters across workers and instances |
+| `KEYGUARD_TRUSTED_PROXIES` | api | unset | IPs and CIDRs whose `X-Forwarded-For` is believed |
+| `KEYGUARD_CLIENT_IP_HEADER` | api | unset | Trust this edge-set header for the client IP (Vercel: `x-real-ip`). Only where clients can't reach the API directly |
+| `CRON_SECRET` | api | unset | Authorizes `GET /api/internal/cleanup` (Vercel Cron sends it automatically) |
+| `DATABASE_URL` | api | unset | Used if `KEYGUARD_DATABASE_URL` isn't set (Neon's Vercel integration injects it) |
+| `KEYGUARD_PROXY_SECRET` | api, web | unset | Shared secret for the web app's `/api` proxy (free-subdomain mode, D-013) |
+| `KEYGUARD_API_INTERNAL_URL` | web | unset | Where the web proxy forwards `/api/*` (e.g. `https://keyguard-api.onrender.com`) |
+| `KEYGUARD_CLIENT_IP_HEADER` | web | `x-real-ip` | Platform header carrying the visitor's IP |
+| `KEYGUARD_WORKERS` | api (container) | `1` | uvicorn workers (safe above 1 with the database rate store) |
+| `KEYGUARD_HSTS` | api, web (build) | unset | `1` adds Strict-Transport-Security |
 | `NEXT_PUBLIC_API_URL` | web (build) | `http://localhost:8000` | API base URL compiled into the bundle |
+
+## Free hosting (no domain needed)
+
+Step-by-step guide: **[DEPLOY_FREE.md](DEPLOY_FREE.md)**. The primary path is one Vercel project (Next.js and FastAPI as
+Vercel Services) plus Neon from Vercel's Storage tab. Render plus a web proxy is the documented alternative.
 
 ## Before any public hosting (release gate, spec §11–12)
 
-Every item must be done and evidenced in `SECURITY_TESTS.md`:
+Status after Sprint 11 (D-013). ✅ means done and evidenced in `SECURITY_TESTS.md`. ☐ means it needs a host or a person.
 
-1. **PostgreSQL:**
-   - point `KEYGUARD_DATABASE_URL` at Postgres;
-   - re-run the full pytest suite and the structured matrix against it;
-   - prove MX-08 (concurrent submissions → at most one allow) holds there.
-2. **Shared rate limiting:** move the counters to a shared store (for example Redis) before running more than one
-   worker or instance.
-3. **Trusted client address:** behind a proxy or CDN, derive the client key from a trusted forwarding header
-   configured for that proxy only, never from a client-supplied header.
-4. **TLS and headers:**
-   - HTTPS only, with HSTS;
-   - a Content-Security-Policy that limits scripts to the app's own origin (the lab token is in `sessionStorage`);
-   - CORS restricted to the deployed web origin.
-5. **Lab token design review:** the spec's open decision "auth/session design" must be revisited for a public demo
-   (D-002 accepted `sessionStorage` for local and educational use only).
-6. **Monitoring:**
-   - alert on 5xx responses, sustained 429s and `LAB_CAPACITY`;
-   - check that the cleanup loop runs (log lines `cleanup:`).
-7. **Usability:** run the sessions in `USABILITY.md` and fix what they find.
-8. **Accounts (D-012):**
-   - **Same site:** serve the web app and API from the **same site** (for example `app.example.com` and
-     `api.example.com`), because the session cookie is SameSite=Strict.
-   - **Relying party:** set `KEYGUARD_RP_ID` to that registrable domain, and set `KEYGUARD_COOKIE_SECURE=1`.
-   - **Passkeys:** passkeys created on `localhost` won't work on the hosted site. That's by design: they're bound to their
-     RP ID.
-9. **Wording:** keep "Fictional vehicles and simulated credentials only" visible on every page (it's in the footer).
+| # | Gate | Status |
+|---|------|--------|
+| 1 | **PostgreSQL**: full suite and matrix (incl. MX-08 concurrency) pass on it | ✅ CI job `api-postgres` (Postgres 17) on every push; [matrix evidence](evidence/matrix-postgres.md). Fixed two PostgreSQL-only bugs (32-bit columns, racing limit checks) |
+| 2 | **Shared rate limiting** across workers and instances | ✅ `KEYGUARD_RATE_STORE=database` (atomic upsert, hashed keys) |
+| 3 | **Trusted client address** behind a proxy or CDN | ✅ `KEYGUARD_TRUSTED_PROXIES`; `X-Forwarded-For` is read only from trusted peers, right to left |
+| 4 | **TLS and headers**: HSTS, CSP, CORS limited to the web origin | ✅ Headers on both apps; HSTS with `KEYGUARD_HSTS=1`. TLS itself comes from the host. CSP keeps `'unsafe-inline'` scripts for now (D-013) |
+| 5 | **Lab token design review** | ✅ Reviewed (D-013): `sessionStorage` kept, with the CSP limiting exfiltration. Cookie-based lab tokens are a follow-up |
+| 6 | **Monitoring** | ◐ `/api/health` checks the database (503 if it's down). Alerting on 5xx, sustained 429s and `LAB_CAPACITY` is set up on the host |
+| 7 | **Usability sessions** (`USABILITY.md`) | ☐ Needs participants |
+| 8 | **Accounts**: same site, RP ID, secure cookie | ✅ Enforced at startup by the production check; the deployment must put web and API on one site |
+| 9 | **Wording**: the "fictional" disclaimer is on every page | ✅ Footer |
+
+### Production environment (the API refuses to start without these when `KEYGUARD_ENV=production`)
+
+```bash
+KEYGUARD_ENV=production
+KEYGUARD_DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/keyguard
+KEYGUARD_WEB_ORIGIN=https://app.example.com
+KEYGUARD_RP_ID=example.com
+KEYGUARD_COOKIE_SECURE=1
+KEYGUARD_HSTS=1
+KEYGUARD_RATE_STORE=database
+KEYGUARD_TRUSTED_PROXIES=10.0.0.0/8      # the host's load-balancer range, OR:
+KEYGUARD_PROXY_SECRET=<32+ random chars>  # web-proxy mode (Render alternative), OR:
+KEYGUARD_CLIENT_IP_HEADER=x-real-ip       # platform-edge mode (Vercel Services): only where the edge is the sole way in
+```
+
+Web build: `NEXT_PUBLIC_API_URL=https://api.example.com` and `KEYGUARD_HSTS=1`.
 
 The spec suggests Vercel for the web app and a separately hosted API. Either fits once these gates are met. Choosing a
 host and creating accounts is a decision for the project owner.
