@@ -7,7 +7,7 @@ import re
 import secrets
 
 _B64URL_RE = re.compile(r"^[A-Za-z0-9_-]*$")
-_ID_RE = re.compile(r"^(lab|veh|key|chl|evt)_[A-Za-z0-9_-]{22}$")
+_ID_RE = re.compile(r"^(lab|veh|key|chl|evt|acct|ses|wac)_[A-Za-z0-9_-]{22}$")
 
 
 class EncodingError(ValueError):

@@ -273,3 +273,54 @@ server-fresh, single use and expires in 30 s.
   distance or timing, which restates the threat model's non-claim: a valid signature does not prove proximity.
 - Real-world mitigations (distance bounding, UWB time-of-flight, motion or user-presence checks) are described as
   context only. **None is implemented or claimed.**
+
+---
+
+## D-012 Accounts and saved labs, with passkeys (F12, P2) — ACCEPTED (2026-11-12, Sprint 10)
+
+The project owner chose **passkeys** over email and password. Labs stay anonymous and disposable by default. An account is
+optional, and only adds the ability to keep labs.
+
+**Sign-in (WebAuthn, via the `py_webauthn` library):**
+- **Credentials:** discoverable (resident key **required**), with **user verification required** and attestation `none`.
+  Accepted algorithms are ES256 and EdDSA.
+- **Usernameless login:** no account lookup endpoint exists, so there's nothing to enumerate.
+- **Relying party:** RP ID and origin come from config (`KEYGUARD_RP_ID`, default `localhost`; origin = the first
+  `KEYGUARD_WEB_ORIGIN`). WebAuthn binds every assertion to that origin, so a phishing site can't use one.
+- **Challenges:** 32 random bytes, stored in `webauthn_challenges` with a purpose (`register` or `login`) and a 5-minute
+  TTL. They're consumed with **one conditional UPDATE**, the same pattern as D-003: single use, burned on any verify
+  attempt.
+- **Sign counter:** stored per passkey. A response whose counter doesn't increase (when either side is non-zero) is
+  rejected as `PASSKEY_CLONED`. Many synced passkeys always report 0, and that's allowed.
+- **Display name:** 1–40 printable characters, chosen by the user, never an email. It isn't unique and isn't used to sign
+  in.
+- **One passkey per account in this MVP.** If it's lost, the account and its saved labs are lost. This is an accepted
+  limitation; synced passkeys reduce the risk.
+
+**Sessions:**
+- A 32-byte random token. The server stores only its SHA-256 and compares with `compare_digest`. Sessions last 12 h,
+  signing out revokes them, and deleting the account deletes them.
+- Sent as the `kg_session` cookie: `HttpOnly; SameSite=Strict; Path=/api`, plus `Secure` when
+  `KEYGUARD_COOKIE_SECURE=1`. Page scripts can never read it, which is unlike the lab token (D-002).
+- **CSRF:** every account request that changes state needs the header `X-KeyGuard-CSRF: 1`. Cross-origin pages can't send
+  a custom header without a CORS preflight, and CORS allows only the configured web origin (with credentials).
+  SameSite=Strict is a second layer.
+
+**Saved labs:**
+- `POST /api/labs/{id}/save` needs **both** the lab's bearer token **and** an account session. It sets
+  `labs.account_id` and extends `expires_at` to 30 days from now. A lab another account already saved returns
+  `409 LAB_ALREADY_SAVED`, so ownership never transfers.
+- **Open:** `POST /api/account/labs/{id}/open` issues a **fresh lab token** and replaces the stored hash, so any older
+  token for that lab stops working. It also extends expiry by 30 days. Another account, or an unknown lab, gets the same
+  `404 LAB_NOT_FOUND`.
+- **Unsave:** `POST /api/account/labs/{id}/unsave` clears ownership and caps expiry at 24 h from now.
+- At most 10 saved labs per account (`SAVED_LAB_LIMIT`).
+- Private keys stay in the browser that made them (D-007). Opening a saved lab in another browser gives you its car,
+  history and key list, but you'd enroll new keys there. Starting a new lab no longer purges the local keys of labs
+  you've saved.
+
+**Delete account:** `POST /api/account/delete` with `{"confirm": "DELETE"}` deletes the account, its passkeys and
+sessions, and **every saved lab with all its data**.
+
+**Rate limits:** the existing per-client limit, plus `auth`: 30 requests per 60 s per client for the four WebAuthn
+endpoints.

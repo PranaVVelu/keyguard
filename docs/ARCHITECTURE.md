@@ -61,6 +61,22 @@ in one transaction:
 
 Phone and card keys keep the challenge path above. Each endpoint refuses the other credential family.
 
+## Accounts and saved labs (D-012)
+
+Accounts are optional. Labs still work anonymously.
+
+**Passkeys:**
+- `routes/account.py` handles HTTP. `security/accounts.py` holds the logic and delegates WebAuthn verification to
+  `py_webauthn`.
+- Challenges live in `webauthn_challenges` and are consumed with a conditional UPDATE, like car challenges.
+- The session token is SHA-256-hashed in `sessions` and sent as an `HttpOnly; SameSite=Strict; Path=/api` cookie.
+  Account writes also need `X-KeyGuard-CSRF`.
+
+**Saved labs:**
+- `labs.account_id` and `labs.saved_at` hold ownership.
+- Saving needs **both** the lab bearer token and the session. Opening rotates the lab token.
+- Ownership never transfers: a conditional `WHERE account_id IS NULL` makes the claim atomic.
+
 ## Isolation boundaries
 
 | Boundary | Mechanism | Enforced by |
@@ -68,6 +84,7 @@ Phone and card keys keep the challenge path above. Each endpoint refuses the oth
 | Lab ↔ lab | Bearer token (SHA-256 stored), uniform `404 LAB_NOT_FOUND`, `lab_id` in every SQL query | matrix MX-11, `test_events_are_scoped_to_the_lab`, e2e "lab is private" |
 | Vulnerable ↔ hardened code | `app/lab/` is imported only by `routes/lab.py`; vulnerable code imports no DB layer | AST import-graph test (`test_lab_isolation.py`) |
 | Scenario ↔ real lab state | Scenarios run on in-memory state plus a temporary SQLite file; the lab only gets summary rows | `test_scenario_does_not_touch_the_labs_real_state` |
+| Account ↔ account | Session cookie → account ID; saved-lab queries filter by `account_id`; uniform 404 | `test_saved_labs_are_private_to_their_account`, e2e "private to their account" |
 | Private key ↔ everything | `extractable: false`; only the SPKI is sent; strict schema rejects extra fields | e2e export attempt (`InvalidAccessError`), `test_extra_fields_such_as_private_key_are_rejected` |
 
 ## Resource controls (D-009)

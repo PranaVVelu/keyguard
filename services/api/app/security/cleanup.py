@@ -8,9 +8,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Engine, delete, func, select
+from sqlalchemy import Connection, Engine, delete, func, select
 
-from app.models.tables import challenges, digital_keys, lab_runs, labs, security_events, vehicles
+from app.models.tables import (
+    challenges,
+    digital_keys,
+    lab_runs,
+    labs,
+    security_events,
+    sessions,
+    vehicles,
+    webauthn_challenges,
+)
 
 # A challenge that expired this long ago can never matter again: authenticate rejects it anyway, and the
 # per-lab open-challenge count only looks at unexpired ones.
@@ -24,16 +33,24 @@ class CleanupReport:
     labs_deleted: int
     challenges_deleted: int
     events_trimmed: int
+    auth_rows_deleted: int = 0  # expired WebAuthn challenges and ended sessions (D-012)
+
+
+def delete_labs_where(conn: Connection, condition) -> int:
+    """Delete the labs matching `condition` and every row that belongs to them.
+
+    Children are deleted explicitly (not only via ON DELETE CASCADE) so this doesn't depend on the database
+    enforcing foreign keys. Used by TTL cleanup and by account deletion.
+    """
+    ids = select(labs.c.id).where(condition)
+    for table in (challenges, security_events, lab_runs, digital_keys, vehicles):
+        conn.execute(delete(table).where(table.c.lab_id.in_(ids)))
+    return conn.execute(delete(labs).where(condition)).rowcount
 
 
 def run_cleanup(engine: Engine, *, now: int) -> CleanupReport:
     with engine.begin() as conn:
-        expired = select(labs.c.id).where(labs.c.expires_at <= now)
-        # Children are deleted explicitly (not only via ON DELETE CASCADE) so cleanup doesn't depend on the
-        # database enforcing foreign keys.
-        for table in (challenges, security_events, lab_runs, digital_keys, vehicles):
-            conn.execute(delete(table).where(table.c.lab_id.in_(expired)))
-        labs_deleted = conn.execute(delete(labs).where(labs.c.expires_at <= now)).rowcount
+        labs_deleted = delete_labs_where(conn, labs.c.expires_at <= now)
 
         challenges_deleted = conn.execute(
             delete(challenges).where(challenges.c.expires_at <= now - CHALLENGE_GRACE_SECONDS)
@@ -57,7 +74,11 @@ def run_cleanup(engine: Engine, *, now: int) -> CleanupReport:
                     security_events.c.lab_id == lab_id, security_events.c.seq.not_in(keep)
                 )
             ).rowcount
-    return CleanupReport(labs_deleted, challenges_deleted, events_trimmed)
+        auth_rows = conn.execute(delete(webauthn_challenges).where(webauthn_challenges.c.expires_at <= now)).rowcount
+        auth_rows += conn.execute(
+            delete(sessions).where((sessions.c.expires_at <= now) | sessions.c.revoked_at.is_not(None))
+        ).rowcount
+    return CleanupReport(labs_deleted, challenges_deleted, events_trimmed, auth_rows)
 
 
 def count_active_labs(engine: Engine, *, now: int) -> int:

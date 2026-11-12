@@ -28,6 +28,7 @@ class RateLimits:
     client: Limit | None = Limit(600, 60)  # every /api request, per client address
     lab_create: Limit | None = Limit(20, 60)  # POST /api/labs, per client address
     lab: Limit | None = Limit(120, 60)  # authorized requests, per lab
+    auth: Limit | None = Limit(30, 60)  # WebAuthn options/verify endpoints, per client address (D-012)
 
     @classmethod
     def from_env(cls) -> RateLimits:
@@ -45,6 +46,7 @@ class RateLimits:
             client=parse("KEYGUARD_RATE_CLIENT", d.client),
             lab_create=parse("KEYGUARD_RATE_LAB_CREATE", d.lab_create),
             lab=parse("KEYGUARD_RATE_LAB", d.lab),
+            auth=parse("KEYGUARD_RATE_AUTH", d.auth),
         )
 
 

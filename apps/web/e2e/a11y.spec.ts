@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 // Automated checks catch only part of what matters for accessibility; see docs/USABILITY.md for the manual pass.
 
 const PAGES = ["/", "/keys", "/inspector", "/lab", "/proximity", "/analytics"];
+const ACCOUNT = "/account";
 
 async function scan(page: import("@playwright/test").Page) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -21,6 +22,12 @@ test("no WCAG A/AA violations before a lab exists", async ({ page }) => {
     await expect(page.getByRole("button", { name: "Start a lab" })).toBeVisible();
     expect(await scan(page), path).toEqual([]);
   }
+});
+
+test("no WCAG A/AA violations on the account page", async ({ page }) => {
+  await page.goto(ACCOUNT);
+  await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
+  expect(await scan(page), ACCOUNT).toEqual([]);
 });
 
 test("no WCAG A/AA violations with real data on every page", async ({ page }) => {

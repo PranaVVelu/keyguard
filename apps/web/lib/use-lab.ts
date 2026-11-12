@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { createLab } from "./api.ts";
+import { createLab, getAccount } from "./api.ts";
 import { purgeOtherLabs } from "./keystore.ts";
 import { clearSession, loadSession, saveSession, type LabSession } from "./lab-session.ts";
 
@@ -22,7 +22,9 @@ export function useLab() {
   const start = useCallback(async () => {
     const s = await createLab();
     saveSession(s);
-    await purgeOtherLabs(s.labId).catch(() => undefined);
+    // Keep this browser's keys for labs saved to the signed-in account (D-012); drop keys for every other lab.
+    const saved = await getAccount().then((a) => a?.saved_labs.map((l) => l.lab_id) ?? []).catch(() => []);
+    await purgeOtherLabs(s.labId, saved).catch(() => undefined);
     setNotice(null);
     setSession(s);
     return s;
@@ -40,5 +42,12 @@ export function useLab() {
     setNotice("Your previous lab has expired or was removed, so its car, keys and history are gone. Start a new lab to continue.");
   }, []);
 
-  return { session, ready, start, end, lost, notice };
+  /** Switch this tab to a lab opened from the account (a fresh token from the server). */
+  const adopt = useCallback((s: LabSession) => {
+    saveSession(s);
+    setNotice(null);
+    setSession(s);
+  }, []);
+
+  return { session, ready, start, end, lost, notice, adopt };
 }

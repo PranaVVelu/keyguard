@@ -1,6 +1,6 @@
 # Security Test Evidence
 
-Last run: 2026-11-12 (Sprint 9), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless, SQLite WAL).
+Last run: 2026-11-12 (Sprint 10), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless, SQLite WAL).
 **Backend: 215 passed, 0 failed** (`cd services/api && uv run pytest -v`).
 **Web unit: 50 passed, 0 failed** (`cd apps/web && npm test`).
 **End-to-end: 7 passed, 0 failed** (`cd apps/web && npm run e2e`: real Chromium, real API, production web build).
@@ -267,6 +267,48 @@ Engine mutation check (manual, all reverted). These were each caught by failing 
 
 Removing `status == 'active'` from the counter UPDATE was not caught. That's an equivalent mutant: status is checked earlier
 in the same `BEGIN IMMEDIATE` transaction, so a revoke can't interleave on SQLite.
+
+## Sprint 10: passkey accounts and saved labs (F12)
+
+Backend tests use a **software authenticator** (`tests/webauthn_sim.py`) that builds real WebAuthn responses: CBOR
+`none` attestations, COSE ES256 keys, authenticator data with UP/UV/AT flags and counters, and ECDSA assertions. The
+`py_webauthn` library verifies them unmodified. E2E tests use **Chromium's virtual CTAP2 authenticator**.
+
+| Property | Evidence |
+|----------|----------|
+| Registration needs a resident key and user verification, with attestation `none`, ES256 or EdDSA | `test_registration_options_require_resident_key_and_user_verification` |
+| Login options list no credentials, so there's nothing to enumerate | `test_login_options_reveal_no_accounts` |
+| Wrong origin (phishing), wrong RP ID or missing UV is rejected at registration and login, with no cookie set (T19) | `test_registration_rejects_*[…]`, `test_login_rejects_*[…]` (6 cases) |
+| WebAuthn challenges are single use, purpose-bound and expire after 5 min; a failed verify burns the challenge (T20) | `test_registration_response_cannot_be_replayed`, `test_failed_verification_burns_the_challenge`, `test_login_challenge_cannot_be_used_for_registration`, `test_expired_challenge_is_rejected` |
+| An assertion signed by another key, an unknown credential or a mismatched user handle is rejected | `test_login_signature_from_another_key_is_rejected`, `test_unknown_passkey_is_rejected`, `test_user_handle_must_match_the_credentials_account` |
+| A sign-counter regression is rejected as `PASSKEY_CLONED`; always-zero counters are allowed (T24) | `test_sign_count_regression_is_rejected`, `test_always_zero_counters_are_allowed` |
+| Session: HttpOnly, SameSite=Strict, Path=/api cookie; token stored only as SHA-256; logout revokes it server-side; 12 h expiry; forged cookies rejected (T21) | `test_register_creates_account_passkey_and_session_cookie`, `test_session_token_is_stored_only_as_a_hash`, `test_logout_revokes_the_session_server_side`, `test_session_expires`, `test_forged_session_cookie_is_rejected` |
+| Every account write needs `X-KeyGuard-CSRF` (T22) | `test_state_changes_require_the_csrf_header[…]` (9 endpoints) |
+| Saving needs both the lab token and a session; another account can't take, open, unsave or list a saved lab (T23) | `test_saving_needs_the_lab_token_too`, `test_saving_needs_an_account`, `test_saved_labs_are_private_to_their_account` |
+| Opening issues a fresh lab token and the old one stops working; unsaving caps retention at 24 h; there's a 10-lab limit | `test_save_open_and_rotate_the_lab_token`, `test_unsave_caps_retention_and_releases_ownership`, `test_saving_twice_is_idempotent_and_the_limit_is_enforced` |
+| Saved labs survive the 24 h TTL and expire at 30 days | `test_saved_labs_outlive_the_normal_lab_ttl` |
+| Deleting the account removes the account, passkeys, sessions and saved labs, but leaves unsaved labs | `test_delete_account_removes_everything_it_owns` |
+| Auth endpoints are rate limited; expired challenges and ended sessions are cleaned up | `test_auth_endpoints_are_rate_limited`, `test_cleanup_removes_expired_challenges_and_ended_sessions` |
+| Browser: register, then the authenticator holds a resident credential; the cookie isn't visible to `document.cookie`; save, sign out, usernameless sign-in (counter rises), reopen with a rotated token; another account sees nothing; typed-confirmation delete | `apps/web/e2e/account.spec.ts` |
+| Account page: 0 axe WCAG A/AA violations | `a11y.spec.ts` |
+
+Mutation check (manual, all reverted). These were each caught:
+- reusable challenges;
+- challenges that never expire;
+- purpose ignored;
+- UV not required;
+- clone detection off;
+- user handle unchecked;
+- revocation ignored;
+- sessions that never expire;
+- opening or unsaving any lab;
+- deletion keeping labs;
+- CSRF off;
+- cookie not HttpOnly;
+- SameSite=Lax.
+
+Removing only the up-front ownership check in `save_lab` was not caught, because the atomic claim
+(`WHERE account_id IS NULL`) still blocks a takeover. Removing both was caught.
 
 ## Known gaps
 
