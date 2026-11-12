@@ -33,6 +33,7 @@ test("no WCAG A/AA violations on the account page", async ({ page }) => {
 test("no WCAG A/AA violations with real data on every page", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a lab" }).click();
+  await expect(page.getByRole("button", { name: "End lab" })).toBeVisible();
   const nav = (name: string) =>
     page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name, exact: true }).click();
 

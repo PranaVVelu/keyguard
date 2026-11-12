@@ -29,6 +29,7 @@ test("the full journey runs under the CSP with no violations, and exfiltration t
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Start a lab" }).click();
+  await expect(page.getByRole("button", { name: "End lab" })).toBeVisible(); // lab created before navigating
   const nav = (name: string) =>
     page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name, exact: true }).click();
   await nav("Digital Keys");
