@@ -1,4 +1,4 @@
-# Demo script (about 6 minutes)
+# Demo script (about 8 minutes)
 
 A walkthrough that shows every P0 feature, plus Analytics, using only real backend decisions. Start the stack (`docker
 compose up --build`, or the two dev servers from the README) and open http://localhost:3000 in a fresh tab.
@@ -15,7 +15,10 @@ compose up --build`, or the two dev servers from the README) and open http://loc
 | 8 | **Digital Keys → Phone A → Revoke → Confirm revoke** | Revocation is immediate. |
 | 9 | **Garage** | Only Phone B is offered, and Request unlock is **ALLOWED** with Phone B. |
 | 10 | **Analytics** | Pass/fail per category. Failure reasons in plain language. Click `CHALLENGE_CONSUMED` to filter the log to the replay. Search for a key ID. |
-| 11 | (Optional) the evidence | `docs/evidence/matrix-latest.md`: 11/11 mandatory rows with timing. In GitHub Actions, the matrix table is in the run summary. |
+| 11 | **Digital Keys → Key fob → enroll**, then **Garage → Press unlock / Press lock** | No challenge: the trace shows the counter rising (0 → 1 → 2). The car remembers the highest counter it has seen. |
+| 12 | **Attack Lab → fob replay, then fob capture** | A replayed press is refused (`COUNTER_REPLAYED`). A press captured before the car saw it is **accepted** by the real engine, labelled as a known limitation. That's why phones and cards use challenges. |
+| 13 | **Proximity → Run the relay on the real backend** | Drag the slider anywhere: the server allows the relayed card unlock regardless. A valid signature doesn't prove the key is near the car. |
+| 14 | (Optional) the evidence | `docs/evidence/matrix-latest.md`: 11/11 mandatory rows with timing. In GitHub Actions, the matrix table is in the run summary. |
 
 ## Talking points on limits (say these out loud)
 

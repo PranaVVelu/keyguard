@@ -1,9 +1,10 @@
 // Client half of kg-auth-v1: request a challenge, check it is the one we asked for, sign it, submit.
 // The UI shows only the server's Decision; nothing here decides whether the vehicle unlocked.
 
-import { authenticate, issueChallenge, type Action, type Challenge, type Decision } from "./api.ts";
+import { authenticate, issueChallenge, pressFob, type Action, type Challenge, type Decision, type FobDecision } from "./api.ts";
 import { signMessage } from "./crypto.ts";
-import { encodeSignedMessage, PROTOCOL_VERSION } from "./encoding.ts";
+import { encodeFobMessage, encodeSignedMessage, PROTOCOL_VERSION } from "./encoding.ts";
+import { reserveFobCounter } from "./keystore.ts";
 import type { LabSession } from "./lab-session.ts";
 
 export interface ActionRequest {
@@ -102,4 +103,32 @@ export async function performAction(
 export async function replay(session: LabSession, a: FlowArtifacts): Promise<Decision> {
   if (!a.challenge || !a.signature) throw new ClientRefusal("NOTHING_TO_REPLAY", "No completed exchange to replay");
   return authenticate(session, { challengeId: a.challenge.challenge_id, keyId: a.request.keyId, signature: a.signature });
+}
+
+// --- Key fob press (kg-fob-v1, D-010) ---------------------------------------------------------------
+
+export interface FobPress {
+  counter: number;
+  message: Uint8Array<ArrayBuffer>;
+  signature: string;
+  decision: FobDecision;
+}
+
+/** Reserve the next counter (persisted first), sign (counter, action) and send it. No server challenge. */
+export async function performFobPress(
+  session: LabSession,
+  req: ActionRequest,
+  privateKey: CryptoKey,
+  reserve: (keyId: string) => Promise<number> = reserveFobCounter,
+): Promise<FobPress> {
+  const counter = await reserve(req.keyId);
+  const message = encodeFobMessage({ vehicleId: req.vehicleId, keyId: req.keyId, counter, action: req.action });
+  const signature = await signMessage(privateKey, message);
+  const decision = await pressFob(session, { ...req, counter, signature });
+  return { counter, message, signature, decision };
+}
+
+/** A passive key card asks for the opposite of the car's current, backend-reported state (D-010). */
+export function cardTapAction(lockState: "locked" | "unlocked"): Action {
+  return lockState === "locked" ? "unlock" : "lock";
 }

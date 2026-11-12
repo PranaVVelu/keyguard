@@ -15,7 +15,7 @@ import { describeReason, eventLabel, eventQueryString, MAX_SEARCH_LENGTH, PAGE_S
 import { useLab } from "@/lib/use-lab";
 
 const CATEGORIES: { id: EventCategory; label: string }[] = [
-  { id: "authentication", label: "Authentication" },
+  { id: "authentication", label: "Authentication (phone, card, fob)" },
   { id: "challenge", label: "Challenge issuance" },
   { id: "key", label: "Key enrollment & revocation" },
   { id: "scenario", label: "Attack Lab scenarios" },

@@ -80,6 +80,33 @@ export function encodeSignedMessage(f: SignedFields): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+// --- kg-fob-v1 (docs/DECISIONS.md D-010): rolling-counter credential, no server challenge -----------
+
+export const FOB_PROTOCOL_VERSION = "kg-fob-v1";
+export const FOB_DOMAIN_TAG = new Uint8Array([...utf8.encode("KEYGUARD-FOB"), 0x00, 0x01]);
+export const MAX_FOB_COUNTER = Number.MAX_SAFE_INTEGER; // 2^53 − 1, same bound as the server
+
+export interface FobFields {
+  vehicleId: string;
+  keyId: string;
+  counter: number;
+  action: Action;
+}
+
+/** Same framing as kg-auth-v1 but a different domain tag; checked against docs/test-vectors/kg-fob-v1.json. */
+export function encodeFobMessage(f: FobFields): Uint8Array<ArrayBuffer> {
+  if (f.action !== "unlock" && f.action !== "lock") throw new EncodingError("ACTION_INVALID");
+  if (!Number.isSafeInteger(f.counter) || f.counter < 1) throw new EncodingError("COUNTER_INVALID");
+  const parts = [FOB_DOMAIN_TAG, ...[FOB_PROTOCOL_VERSION, f.vehicleId, f.keyId, String(f.counter), f.action].map(frame)];
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
+}
+
 export function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

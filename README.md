@@ -10,6 +10,8 @@ backend makes every decision:
 - **Inspector:** a step-by-step view of a real challenge-response exchange.
 - **Attack Lab:** replay, tampering and signed-bytes substitution scenarios against an isolated vulnerable verifier and the real engine, side by side.
 - **Security Analytics:** a searchable event log with failure categories.
+- **Credential types (F10):** phone, passive key card, and a rolling-counter key fob, each with Attack Lab scenarios.
+- **Proximity (F11, conceptual):** a relay demo showing that a valid signature doesn't prove distance.
 
 The spec's 11-row mandatory test matrix passes through the real API ([latest evidence](docs/evidence/matrix-latest.md)).
 Real-browser Playwright tests drive the whole journey, and all of it runs in CI.
@@ -24,7 +26,7 @@ and isn't met.
 docker compose up --build      # then open http://localhost:3000
 ```
 
-Then follow the [6-minute demo script](docs/DEMO.md).
+Then follow the [demo script](docs/DEMO.md).
 
 ## Layout
 
@@ -73,6 +75,7 @@ npx playwright install chromium && npm run e2e   # real-browser tests (starts it
 | POST | `/api/labs/{id}/keys/{keyId}/revoke` | Revoke a credential (immediate; idempotent) |
 | POST | `/api/labs/{id}/challenges` | Issue a 30-second single-use challenge for (vehicle, key, action) |
 | POST | `/api/labs/{id}/authenticate` | Verify a signed challenge; returns allow/deny with a reason and a 6-step trace |
+| POST | `/api/labs/{id}/fob` | Key-fob press (kg-fob-v1 rolling counter, D-010); allow/deny with a 6-step trace |
 | GET | `/api/labs/{id}/scenarios` | List Attack Lab scenarios |
 | POST | `/api/labs/{id}/scenarios/{scenario}` | Run vulnerable vs hardened on disposable state |
 | GET | `/api/labs/{id}/lab-runs` | Scenario run history (expected vs actual per mode) |

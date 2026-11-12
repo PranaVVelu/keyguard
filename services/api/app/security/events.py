@@ -44,19 +44,19 @@ def record_event(
 
 # --- Read side (F08 Security Analytics) -------------------------------------------------------------
 
-CATEGORIES: dict[str, str] = {
-    "authentication": "authenticate",
-    "challenge": "challenge_",
-    "key": "key_",
-    "scenario": "scenario_",
+CATEGORIES: dict[str, tuple[str, ...]] = {
+    "authentication": ("authenticate", "fob_"),  # challenge-response and key-fob presses (D-010)
+    "challenge": ("challenge_",),
+    "key": ("key_",),
+    "scenario": ("scenario_",),
 }
 PASS_OUTCOMES = ("allow", "issued", "success", "as_expected")
 MAX_EVENTS_PAGE = 200
 
 
 def category_of(event_type: str) -> str:
-    for name, prefix in CATEGORIES.items():
-        if event_type.startswith(prefix):
+    for name, prefixes in CATEGORIES.items():
+        if event_type.startswith(prefixes):
             return name
     return "other"
 
@@ -81,7 +81,7 @@ def _where(lab_id: str, f: EventFilter):
     ev = security_events.c
     clauses = [ev.lab_id == lab_id]  # always scoped in SQL (D-002)
     if f.category:
-        clauses.append(ev.event_type.startswith(CATEGORIES[f.category], autoescape=True))
+        clauses.append(or_(*(ev.event_type.startswith(p, autoescape=True) for p in CATEGORIES[f.category])))
     if f.result == "pass":
         clauses.append(ev.outcome.in_(PASS_OUTCOMES))
     elif f.result == "fail":
@@ -138,7 +138,11 @@ def summarize_events(conn: Connection, *, lab_id: str) -> dict:
 
     durations = conn.execute(
         select(ev.duration_ms)
-        .where(ev.lab_id == lab_id, ev.event_type.startswith("authenticate"), ev.duration_ms.is_not(None))
+        .where(
+            ev.lab_id == lab_id,
+            or_(*(ev.event_type.startswith(p, autoescape=True) for p in CATEGORIES["authentication"])),
+            ev.duration_ms.is_not(None),
+        )
         .order_by(ev.duration_ms)
     ).scalars().all()
 

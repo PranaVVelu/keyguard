@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // Automated WCAG 2.1 A/AA scan of every page, both before a lab exists and with real data on screen.
 // Automated checks catch only part of what matters for accessibility; see docs/USABILITY.md for the manual pass.
 
-const PAGES = ["/", "/keys", "/inspector", "/lab", "/analytics"];
+const PAGES = ["/", "/keys", "/inspector", "/lab", "/proximity", "/analytics"];
 
 async function scan(page: import("@playwright/test").Page) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -50,6 +50,11 @@ test("no WCAG A/AA violations with real data on every page", async ({ page }) =>
   await page.getByRole("button", { name: "Run scenario: Replay a captured unlock" }).click();
   await expect(page.getByText(/REPLAY REJECTED/)).toBeVisible();
   expect(await scan(page), "/lab").toEqual([]);
+
+  await nav("Proximity");
+  await page.getByRole("button", { name: "Run the relay on the real backend" }).click();
+  await expect(page.getByText("relayed unlock ACCEPTED").first()).toBeVisible();
+  expect(await scan(page), "/proximity").toEqual([]);
 
   await nav("Analytics");
   await expect(page.getByText("CHALLENGE_CONSUMED").first()).toBeVisible();

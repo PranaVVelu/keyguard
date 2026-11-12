@@ -49,6 +49,18 @@ dates) are in [DECISIONS.md](DECISIONS.md), threats in [THREAT_MODEL.md](THREAT_
 
 The client never sends a lock state, a success flag or the signed bytes. The server rebuilds everything it verifies.
 
+## Key fob path (kg-fob-v1, D-010)
+
+There is no challenge. The browser reserves the next counter in IndexedDB (persisted first), signs
+`(vehicle, key, counter, action)` under the `KEYGUARD-FOB` domain tag, and posts it to `/fob`. `security/fob.py` then runs,
+in one transaction:
+1. check the key exists, is a fob, is active and is bound to the vehicle;
+2. verify the signature over the rebuilt bytes;
+3. advance `last_counter` with a conditional UPDATE (`last < c ≤ last + 32`);
+4. commit the vehicle state.
+
+Phone and card keys keep the challenge path above. Each endpoint refuses the other credential family.
+
 ## Isolation boundaries
 
 | Boundary | Mechanism | Enforced by |

@@ -1,3 +1,4 @@
+import { API_URL } from "./ports";
 import { expect, test, type Page } from "@playwright/test";
 
 // The whole owner journey through the real UI, API and Web Crypto, in one lab.
@@ -146,10 +147,10 @@ test("a lab is private to the tab that created it", async ({ page, browser }) =>
   const stranger = await other.newPage();
   await stranger.goto("/");
   await expect(stranger.getByRole("button", { name: "Start a lab" })).toBeVisible();
-  const status = await stranger.evaluate(async (id) => {
-    const r = await fetch(`http://localhost:8100/api/labs/${id}/vehicles`);
+  const status = await stranger.evaluate(async ({ id, api }) => {
+    const r = await fetch(`${api}/api/labs/${id}/vehicles`);
     return { status: r.status, code: (await r.json()).error.code };
-  }, labId);
+  }, { id: labId, api: API_URL });
   expect(status).toEqual({ status: 404, code: "LAB_NOT_FOUND" });
   await other.close();
 });

@@ -76,6 +76,9 @@ def test_catalog_lists_every_scenario(client, new_lab):
         ("replay", {"vulnerable": "allow", "hardened": "deny"}),
         ("tamper", {"vulnerable": "deny", "hardened": "deny"}),
         ("substitute", {"vulnerable": "allow", "hardened": "deny"}),
+        ("fob-replay", {"vulnerable": "allow", "hardened": "deny"}),
+        ("fob-capture", {"vulnerable": "allow", "hardened": "allow"}),
+        ("relay", {"vulnerable": "allow", "hardened": "allow"}),
     ]
     for s in cat:  # the UI renders these instead of hard-coded replay copy
         assert s["attack_label"] and s["takeaway"]
@@ -310,3 +313,63 @@ def test_substitution_through_the_real_api_is_denied_and_signed_bytes_are_not_ac
     body = authenticate(challenge_id=fresh_id, signature=captured_sig).json()
     assert (body["decision"], body["reason"]) == ("deny", "SIGNATURE_INVALID")
     assert lock_state() == "locked"
+
+
+
+# --- Sprint 9: key fob (D-010) and relay (D-011) scenarios ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("scenario", "vulnerable", "hardened"),
+    [
+        ("fob-replay", ("allow", None), ("deny", "COUNTER_REPLAYED")),
+        ("fob-capture", ("allow", None), ("allow", None)),
+        ("relay", ("allow", None), ("allow", None)),
+    ],
+)
+def test_new_scenarios_through_the_api(client, new_lab, scenario, vulnerable, hardened):
+    body = _run(client, new_lab, scenario=scenario).json()
+    assert body["matches_expected"] is True
+    runs = {r["mode"]: r for r in body["runs"]}
+    assert (runs["vulnerable"]["attack_decision"], runs["vulnerable"]["attack_reason"]) == vulnerable
+    assert (runs["hardened"]["attack_decision"], runs["hardened"]["attack_reason"]) == hardened
+    # Owner steps are genuine and allowed in every mode: the attack is the only variable.
+    for r in body["runs"]:
+        assert all(s["decision"] == "allow" for s in r["steps"] if s["actor"] == "owner")
+
+
+@pytest.mark.parametrize("scenario", ["fob-replay", "fob-capture", "relay"])
+@pytest.mark.parametrize("i", range(3))
+def test_new_scenarios_are_reproducible(scenario, i):
+    r = run_scenario(scenario, now=1_793_923_200 + i)
+    assert r["matches_expected"], r["actual"]
+
+
+def test_counterless_receiver_still_checks_signatures():
+    from app.lab.vulnerable.fob import CounterlessFobReceiver
+    from app.security.protocol import FobFields, encode_fob_message
+
+    owner, attacker = SimulatedClientKey(), SimulatedClientKey()
+    rx = CounterlessFobReceiver(vehicle_id="veh_" + "V" * 22, key_id="key_" + "V" * 22, spki_b64url=owner.spki_b64url)
+    forged = attacker.sign_p1363(encode_fob_message(FobFields("veh_" + "V" * 22, "key_" + "V" * 22, 1, "unlock")))
+    assert rx.press(counter=1, action="unlock", signature=forged) == ("deny", "SIGNATURE_INVALID")
+    assert rx.lock_state == "locked"
+
+
+def test_relay_hardened_run_uses_a_card_credential():
+    """The relay story depends on the passive card; make sure the sandbox really enrolls one."""
+    from app.lab import scenarios
+
+    seen = {}
+    real_enroll = scenarios.enroll_key
+
+    def spy(*a, **kw):
+        seen["credential_type"] = kw.get("credential_type")
+        return real_enroll(*a, **kw)
+
+    scenarios.enroll_key = spy
+    try:
+        run_scenario("relay", now=1_793_923_200)
+    finally:
+        scenarios.enroll_key = real_enroll
+    assert seen["credential_type"] == "card"

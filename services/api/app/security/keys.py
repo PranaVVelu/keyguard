@@ -11,6 +11,7 @@ from app.security.encoding import b64url_encode, new_id
 from app.security.protocol import fingerprint, load_public_key
 
 MAX_KEYS_PER_LAB = 10
+CREDENTIAL_TYPES = ("phone", "card", "fob")
 
 
 class EnrollmentError(Exception):
@@ -26,16 +27,29 @@ class KeyRecord:
     label: str
     fingerprint: str
     status: str
+    credential_type: str
+    last_counter: int
     created_at: int
     revoked_at: int | None
 
 
-def enroll_key(conn: Connection, *, lab_id: str, vehicle_id: str, spki_b64url: str, label: str, now: int) -> str:
+def enroll_key(
+    conn: Connection,
+    *,
+    lab_id: str,
+    vehicle_id: str,
+    spki_b64url: str,
+    label: str,
+    now: int,
+    credential_type: str = "phone",
+) -> str:
     """Validate and store a P-256 public key bound to one vehicle in this lab.
 
     Raises ProtocolError for a bad key, or EnrollmentError for VEHICLE_NOT_FOUND,
     KEY_ALREADY_ENROLLED or KEY_LIMIT_REACHED.
     """
+    if credential_type not in CREDENTIAL_TYPES:
+        raise EnrollmentError("CREDENTIAL_TYPE_INVALID")
     _, der = load_public_key(spki_b64url)
     fp = fingerprint(der)
 
@@ -61,6 +75,8 @@ def enroll_key(conn: Connection, *, lab_id: str, vehicle_id: str, spki_b64url: s
             public_key=der,
             fingerprint=fp,
             status="active",
+            credential_type=credential_type,
+            last_counter=0,
             created_at=now,
         )
     )
@@ -75,6 +91,8 @@ def list_keys(conn: Connection, *, lab_id: str) -> list[KeyRecord]:
             digital_keys.c.label,
             digital_keys.c.fingerprint,
             digital_keys.c.status,
+            digital_keys.c.credential_type,
+            digital_keys.c.last_counter,
             digital_keys.c.created_at,
             digital_keys.c.revoked_at,
         )
@@ -89,15 +107,29 @@ class KeyAuthInfo:
     vehicle_id: str
     status: str
     spki_der: bytes
+    credential_type: str
+    last_counter: int
 
 
 def get_key_auth_info(conn: Connection, *, lab_id: str, key_id: str) -> KeyAuthInfo | None:
     row = conn.execute(
-        select(digital_keys.c.vehicle_id, digital_keys.c.status, digital_keys.c.public_key).where(
-            and_(digital_keys.c.id == key_id, digital_keys.c.lab_id == lab_id)
-        )
+        select(
+            digital_keys.c.vehicle_id,
+            digital_keys.c.status,
+            digital_keys.c.public_key,
+            digital_keys.c.credential_type,
+            digital_keys.c.last_counter,
+        ).where(and_(digital_keys.c.id == key_id, digital_keys.c.lab_id == lab_id))
     ).first()
-    return None if row is None else KeyAuthInfo(vehicle_id=row.vehicle_id, status=row.status, spki_der=row.public_key)
+    if row is None:
+        return None
+    return KeyAuthInfo(
+        vehicle_id=row.vehicle_id,
+        status=row.status,
+        spki_der=row.public_key,
+        credential_type=row.credential_type,
+        last_counter=row.last_counter,
+    )
 
 
 def get_key_spki(conn: Connection, *, lab_id: str, key_id: str) -> str | None:
