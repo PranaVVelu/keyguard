@@ -157,6 +157,16 @@ def client_address(request: Request) -> str:
             return str(ipaddress.ip_address(claimed))
         except ValueError:
             pass
+    # Platform-edge mode (e.g. Vercel Services): the API is reachable ONLY through the platform's edge, which sets
+    # this header itself and overwrites any client-supplied value. Never enable it where clients can reach the API
+    # directly (D-013).
+    header = getattr(request.app.state, "client_ip_header", None)
+    if header:
+        claimed = request.headers.get(header, "").split(",")[0].strip()
+        try:
+            return str(ipaddress.ip_address(claimed))
+        except ValueError:
+            pass
     proxies = getattr(request.app.state, "trusted_proxies", ())
     return resolve_client(
         request.client.host if request.client else None, request.headers.get("x-forwarded-for"), proxies

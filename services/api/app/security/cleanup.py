@@ -95,5 +95,7 @@ if __name__ == "__main__":  # pragma: no cover - operational entry point
 
     from app.db import make_engine
 
-    eng = make_engine(os.environ.get("KEYGUARD_DATABASE_URL", "sqlite:///./keyguard.db"))
+    from app.config import database_url
+
+    eng = make_engine(database_url())
     print(run_cleanup(eng, now=int(time.time())))

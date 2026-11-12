@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import logging
 import os
 import time
@@ -21,6 +22,7 @@ from app.errors import error_response, install_error_handlers
 from app.routes import account, auth, events, keys, lab, labs
 from app.security.cleanup import run_cleanup
 from app.config import check_production, is_production
+from app.config import database_url as configured_database_url
 from app.security.ratelimit import (
     DatabaseRateLimiter,
     RateLimiter,
@@ -47,7 +49,7 @@ def create_app(
     `rate_store` is "memory" (default) or "database" (shared across workers, D-013).
     """
     check_production()
-    engine = make_engine(database_url or os.environ.get("KEYGUARD_DATABASE_URL", "sqlite:///./keyguard.db"))
+    engine = make_engine(database_url or configured_database_url())
     now_fn = clock or (lambda: int(time.time()))
     interval = cleanup_interval if cleanup_interval is not None else int(os.environ.get("KEYGUARD_CLEANUP_INTERVAL", "300"))
 
@@ -79,6 +81,8 @@ def create_app(
     # Free-subdomain hosting (D-013): when set, every API request except the health check must come through the
     # web app's proxy, which proves itself with this secret and passes the visitor's IP.
     app.state.proxy_secret = os.environ.get("KEYGUARD_PROXY_SECRET") or None
+    # Platform-edge mode (Vercel Services): the edge's client-IP header is trusted (D-013).
+    app.state.client_ip_header = (os.environ.get("KEYGUARD_CLIENT_IP_HEADER") or "").strip().lower() or None
     hsts = os.environ.get("KEYGUARD_HSTS") == "1"
 
     @app.middleware("http")
@@ -131,6 +135,16 @@ def create_app(
     app.include_router(lab.router)
     app.include_router(events.router)
     app.include_router(account.router)
+
+    @app.get("/api/internal/cleanup", include_in_schema=False)
+    def scheduled_cleanup(request: Request):
+        """TTL cleanup for serverless hosts with no background loop (Vercel Cron, daily). Needs CRON_SECRET."""
+        secret = os.environ.get("CRON_SECRET", "")
+        presented = request.headers.get("authorization", "")
+        if not secret or not hmac.compare_digest(presented.encode(), f"Bearer {secret}".encode()):
+            return error_response(404, "NOT_FOUND", "Request could not be served")
+        report = run_cleanup(engine, now=now_fn())
+        return {"status": "ok", **report.__dict__}
 
     @app.get("/api/health")
     def health():

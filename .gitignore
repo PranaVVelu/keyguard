@@ -21,3 +21,6 @@ apps/web/next-env.d.ts
 matrix.json
 matrix.md
 /services/api/matrix-postgres.*
+
+# Vercel CLI local state
+.vercel/

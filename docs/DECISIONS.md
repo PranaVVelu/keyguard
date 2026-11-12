@@ -415,3 +415,22 @@ Instead:
   believe.
 - **Accepted trade-off:** each request makes one extra hop (Vercel → Render). Free Render instances sleep, so the proxy
   allows 60 s for a cold start.
+
+### D-013 addendum 2: Vercel Services as the primary free host (2026-11-12)
+
+The owner already uses Vercel and prefers free. [Vercel Services](https://vercel.com/docs/services) (beta, all plans)
+deploys the Next.js app and the FastAPI API in **one project on one origin**. This is now the primary path
+(`vercel.json`); the Render plus web-proxy path stays as a tested alternative.
+- **Routing.** `/api/*` goes to the `api` service, which receives the original path, and everything else goes to `web`.
+  The API service has no other public route.
+- **Client IP.** `KEYGUARD_CLIENT_IP_HEADER=x-real-ip`: the API uses the edge-set header (Vercel overwrites
+  client-supplied values) as the rate-limit key, and only if it's a valid IP. This mode is safe **only** where the edge
+  is the sole way in, and the guide says so. The production check now accepts any one of three modes: the platform
+  header, the proxy secret or trusted proxies.
+- **Cleanup.** Serverless functions don't keep a background loop alive, so `KEYGUARD_CLEANUP_INTERVAL=0` is set and a
+  daily Vercel Cron calls `GET /api/internal/cleanup`. That endpoint needs `Authorization: Bearer $CRON_SECRET`, sent
+  automatically by Vercel, and answers 404 otherwise. The production check requires `CRON_SECRET` when it detects
+  Vercel.
+- **Database.** `DATABASE_URL`, injected by Vercel's Neon integration, is used when `KEYGUARD_DATABASE_URL` isn't set.
+- **Entry point.** `app/asgi.py` exposes a module-level `app` built by the same `create_app()` factory.
+- **Verified** locally with `vercel dev --local`: both services, routing and a full browser flow on one origin.

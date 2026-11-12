@@ -1,75 +1,90 @@
-# Free hosting: Vercel + Render + Neon
+# Free hosting on Vercel (no domain needed)
 
-This setup runs KeyGuard on free subdomains, with no domain purchase. It satisfies every code gate in
-[DEPLOYMENT.md](DEPLOYMENT.md). The design is in D-013.
+One Vercel project runs both apps with [Vercel Services](https://vercel.com/docs/services), which is in beta and on
+every plan. Neon Postgres is added from Vercel's Storage tab. There's no domain to buy and no second hosting account.
+The design is in D-013.
 
 ```
-browser ──https──▶  <project>.vercel.app          (Next.js web app)
-                     └─ /api/* route ──https──▶  keyguard-api.onrender.com   (FastAPI, Docker)
-                        + X-KeyGuard-Proxy-Secret      └──▶  Neon PostgreSQL
-                        + X-KeyGuard-Client-IP
+browser ──https──▶ <project>.vercel.app
+                     ├─ /api/*  ──▶ service "api"  (FastAPI, Vercel Function, Python 3.12) ──▶ Neon Postgres
+                     └─ /*      ──▶ service "web"  (Next.js)
 ```
 
-**Why a proxy?**
-- The browser only ever sees the Vercel origin, so the passkey session cookie is first-party and the CSP is
+Everything is configured in [`vercel.json`](../vercel.json) at the repository root:
+- the two services;
+- the routing (`/api/*` goes to FastAPI and receives the original path);
+- a daily cleanup cron.
+
+**Why this is safe:**
+- **One origin.** The website and API share one address, so the passkey session cookie is first-party and the CSP is
   `connect-src 'self'`.
-- The API refuses anything that doesn't carry the proxy's secret (`403 PROXY_REQUIRED`). That means nobody can go
-  around the web app, or around per-visitor rate limits.
-- Vercel's edge sets `x-real-ip` and overwrites any value a client sends, and the proxy passes that IP to the API.
+- **One way in.** The API service has **no public route of its own**. Requests reach it only through Vercel's edge,
+  which sets `x-real-ip` and overwrites any value a client sends. The API uses that header as the rate-limit key
+  (`KEYGUARD_CLIENT_IP_HEADER`). This is only safe because the edge is the only way in; never set that variable on a
+  host where clients can reach the API directly.
+- **Startup check.** The production check refuses to start without PostgreSQL, HTTPS origins, a Secure cookie, HSTS,
+  the database rate store and `CRON_SECRET`.
 
-## What you'll need to do yourself
-
-Creating accounts and connecting GitHub happen in your own browser, on each provider's sign-up page. Claude won't
-create accounts or enter passwords for you.
-
-1. Sign up for **[Neon](https://neon.tech)** (free Postgres), **[Render](https://render.com)** and
-   **[Vercel](https://vercel.com)**. Signing in with GitHub is easiest.
-2. Allow Render and Vercel to read the `PranaVVelu/keyguard` repository when they ask.
+This was checked locally with `vercel dev --local` (CLI 65.15). Both services started from `vercel.json`, `/api/*`
+reached FastAPI, and a full start-lab → enroll → unlock flow passed with the page contacting only its own origin.
 
 ## Steps
 
-**1. Database (Neon)**
-- Create a project. Any region close to Render's (for example US West) works.
-- Copy the **pooled** connection string (`postgresql://…?sslmode=require`). The API accepts it as-is.
+**1. Create the project.**
+In Vercel: **Add New → Project** → import `PranaVVelu/keyguard`, and keep the **root directory at the repository
+root**. Vercel reads `vercel.json` and sets up both services. Pick the project name now, because it becomes
+`<project>.vercel.app` and the passkeys will be bound to it.
 
-**2. API (Render)**
-- New → **Blueprint** → choose this repository. Render reads `render.yaml` and creates `keyguard-api`.
-- Fill in the three prompted values:
+**2. Add the database.**
+In the project: **Storage → Create Database → Neon** (free plan) → connect it to the project. Vercel injects
+`DATABASE_URL`, which the API uses automatically.
+- This creates a Neon account linked to your Vercel account.
+- You'll accept Neon's terms in that dialog yourself.
 
-| Variable | Value |
-|---|---|
-| `KEYGUARD_DATABASE_URL` | the Neon connection string |
-| `KEYGUARD_WEB_ORIGIN` | `https://<your-project>.vercel.app` (pick the Vercel project name first, in step 3) |
-| `KEYGUARD_RP_ID` | `<your-project>.vercel.app` |
-
-- After the first deploy, open the service's **Environment** tab and copy the generated `KEYGUARD_PROXY_SECRET`.
-- Check that `https://keyguard-api.onrender.com/api/health` returns `{"status":"ok","database":"postgresql"}`. If the API
-  refuses to start, the log lists exactly which production setting is wrong.
-
-**3. Web app (Vercel)**
-- Add New → Project → import the repository, and set **Root Directory** to `apps/web`.
-- Environment variables (Production):
+**3. Set environment variables** (Settings → Environment Variables → Production):
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | `same-origin` |
-| `KEYGUARD_API_INTERNAL_URL` | `https://keyguard-api.onrender.com` |
-| `KEYGUARD_PROXY_SECRET` | the value copied from Render |
+| `KEYGUARD_ENV` | `production` |
+| `KEYGUARD_WEB_ORIGIN` | `https://<project>.vercel.app` |
+| `KEYGUARD_RP_ID` | `<project>.vercel.app` |
+| `KEYGUARD_COOKIE_SECURE` | `1` |
 | `KEYGUARD_HSTS` | `1` |
+| `KEYGUARD_RATE_STORE` | `database` |
+| `KEYGUARD_CLIENT_IP_HEADER` | `x-real-ip` |
+| `KEYGUARD_CLEANUP_INTERVAL` | `0` (serverless: cleanup runs from the daily cron instead) |
+| `CRON_SECRET` | 32+ random characters (`openssl rand -base64 32`) |
+| `NEXT_PUBLIC_API_URL` | `same-origin` |
 
-- Deploy, then open `https://<your-project>.vercel.app`.
+**4. Deploy.**
+Redeploy so the variables take effect. Pushes to `main` deploy automatically after that. GitHub shows the deployment
+next to CI, and branch protection can make CI required.
 
-**4. Smoke test**
-- Start a lab, enroll a key and unlock.
-- Create a passkey on the Account page.
-- Check that `curl -X POST https://keyguard-api.onrender.com/api/labs` returns `403 PROXY_REQUIRED`.
+**5. Smoke test.**
+- `https://<project>.vercel.app/api/health` → `{"status":"ok","database":"postgresql"}`. If the API fails to start, the
+  function log lists every production setting that's wrong.
+- In the app: start a lab, enroll a key, unlock, create a passkey on the Account page, and save the lab.
 
-## Free-tier behaviour to know about
+## Free-tier notes
 
-- **Render free instances sleep after about 15 minutes idle.** The first request afterwards can take up to a minute.
-  The proxy waits up to 60 s (`maxDuration`), and if it still times out it says the API "may be waking up".
-- **Neon free** pauses compute when idle and resumes in about a second. `pool_pre_ping` handles the dropped connections.
-- **Passkeys are bound to `<your-project>.vercel.app`.** Renaming the Vercel project, or later moving to your own
-  domain, means creating new passkeys. That's by design.
-- **Alerting:** Render emails on failed deploys and health checks. For uptime alerts, point a free monitor at
-  `/api/health`.
+- **Python functions cold-start** in a second or two after idle; there's no 15-minute sleep like some free hosts.
+- **Hobby cron jobs run at most once a day.** That's enough: labs already stop working at expiry, and the cron only
+  deletes their data.
+- **Neon free** pauses when idle and wakes in about a second. `pool_pre_ping` handles dropped connections.
+- **Passkeys are bound to `<project>.vercel.app`.** Renaming the project or moving to your own domain later means
+  creating new passkeys.
+- **Preview deployments** get different URLs, so passkeys created on production won't work there. Everything else does.
+- **Services is a beta feature.** If it changes, the alternative below needs no code changes.
+
+## Alternative: Render (API) + Vercel (web) + Neon
+
+If you'd rather not use Services, `render.yaml` deploys the API's Docker image to Render's free plan.
+- The web app's server-side `/api` proxy (`app/api/[...path]/route.ts`) forwards to it with a shared
+  `KEYGUARD_PROXY_SECRET`, and the API refuses anything without that secret.
+- Web settings: `NEXT_PUBLIC_API_URL=same-origin`, `KEYGUARD_API_INTERNAL_URL=https://<api>.onrender.com`,
+  `KEYGUARD_PROXY_SECRET=<same value as Render>`.
+- API settings: as in the table above, but with `KEYGUARD_PROXY_SECRET` instead of `KEYGUARD_CLIENT_IP_HEADER`, and a
+  Neon connection string in `KEYGUARD_DATABASE_URL`.
+- Render's free instances sleep after about 15 minutes idle. The proxy waits up to 60 s for the first request.
+
+The whole e2e suite runs in this proxy mode in CI (`KEYGUARD_E2E_MODE=proxy`).

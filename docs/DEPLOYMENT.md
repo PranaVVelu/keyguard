@@ -37,6 +37,9 @@ See the README. In short: `uv sync` plus `uvicorn` for the API, and `npm install
 | `KEYGUARD_ENV` | api | `development` | `production` turns on the startup safety check |
 | `KEYGUARD_RATE_STORE` | api | `memory` | `database` shares counters across workers and instances |
 | `KEYGUARD_TRUSTED_PROXIES` | api | unset | IPs and CIDRs whose `X-Forwarded-For` is believed |
+| `KEYGUARD_CLIENT_IP_HEADER` | api | unset | Trust this edge-set header for the client IP (Vercel: `x-real-ip`). Only where clients can't reach the API directly |
+| `CRON_SECRET` | api | unset | Authorizes `GET /api/internal/cleanup` (Vercel Cron sends it automatically) |
+| `DATABASE_URL` | api | unset | Used if `KEYGUARD_DATABASE_URL` isn't set (Neon's Vercel integration injects it) |
 | `KEYGUARD_PROXY_SECRET` | api, web | unset | Shared secret for the web app's `/api` proxy (free-subdomain mode, D-013) |
 | `KEYGUARD_API_INTERNAL_URL` | web | unset | Where the web proxy forwards `/api/*` (e.g. `https://keyguard-api.onrender.com`) |
 | `KEYGUARD_CLIENT_IP_HEADER` | web | `x-real-ip` | Platform header carrying the visitor's IP |
@@ -46,7 +49,8 @@ See the README. In short: `uv sync` plus `uvicorn` for the API, and `npm install
 
 ## Free hosting (no domain needed)
 
-Step-by-step guide: **[DEPLOY_FREE.md](DEPLOY_FREE.md)** (Vercel + Render + Neon, with a `render.yaml` blueprint).
+Step-by-step guide: **[DEPLOY_FREE.md](DEPLOY_FREE.md)**. The primary path is one Vercel project (Next.js and FastAPI as
+Vercel Services) plus Neon from Vercel's Storage tab. Render plus a web proxy is the documented alternative.
 
 ## Before any public hosting (release gate, spec §11–12)
 
@@ -75,7 +79,8 @@ KEYGUARD_COOKIE_SECURE=1
 KEYGUARD_HSTS=1
 KEYGUARD_RATE_STORE=database
 KEYGUARD_TRUSTED_PROXIES=10.0.0.0/8      # the host's load-balancer range, OR:
-KEYGUARD_PROXY_SECRET=<32+ random chars>  # free-subdomain mode: only the web app's /api proxy may call the API
+KEYGUARD_PROXY_SECRET=<32+ random chars>  # web-proxy mode (Render alternative), OR:
+KEYGUARD_CLIENT_IP_HEADER=x-real-ip       # platform-edge mode (Vercel Services): only where the edge is the sole way in
 ```
 
 Web build: `NEXT_PUBLIC_API_URL=https://api.example.com` and `KEYGUARD_HSTS=1`.

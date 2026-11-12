@@ -16,12 +16,17 @@ def is_production(env: Mapping[str, str] = os.environ) -> bool:
     return env.get("KEYGUARD_ENV", "development").strip().lower() == "production"
 
 
+def database_url(env: Mapping[str, str] = os.environ) -> str:
+    """KEYGUARD_DATABASE_URL, else DATABASE_URL (what Neon injects through the Vercel integration), else local SQLite."""
+    return env.get("KEYGUARD_DATABASE_URL") or env.get("DATABASE_URL") or "sqlite:///./keyguard.db"
+
+
 def production_problems(env: Mapping[str, str] = os.environ) -> list[str]:
     """Everything that makes this configuration unsafe for public hosting. Empty means OK."""
     problems: list[str] = []
-    db = env.get("KEYGUARD_DATABASE_URL", "")
+    db = database_url(env)
     if not db.startswith(("postgresql", "postgres://")):
-        problems.append("KEYGUARD_DATABASE_URL must be a PostgreSQL URL (SQLite is for local use only)")
+        problems.append("KEYGUARD_DATABASE_URL (or DATABASE_URL) must be a PostgreSQL URL (SQLite is for local use only)")
     origins = [o.strip() for o in env.get("KEYGUARD_WEB_ORIGIN", "").split(",") if o.strip()]
     if not origins:
         problems.append("KEYGUARD_WEB_ORIGIN must list the deployed web origin(s)")
@@ -46,9 +51,15 @@ def production_problems(env: Mapping[str, str] = os.environ) -> list[str]:
     secret = env.get("KEYGUARD_PROXY_SECRET", "")
     if secret and len(secret) < 32:
         problems.append("KEYGUARD_PROXY_SECRET must be at least 32 characters")
-    if proxies == () and not secret:
+    ip_header = env.get("KEYGUARD_CLIENT_IP_HEADER", "")
+    if proxies == () and not secret and not ip_header:
         # Behind any host's load balancer the direct peer is the balancer, so every visitor would share one budget.
-        problems.append("set KEYGUARD_PROXY_SECRET (web proxy mode) or KEYGUARD_TRUSTED_PROXIES so rate limits are per visitor")
+        problems.append(
+            "set KEYGUARD_CLIENT_IP_HEADER (platform edge), KEYGUARD_PROXY_SECRET (web proxy) or "
+            "KEYGUARD_TRUSTED_PROXIES so rate limits are per visitor"
+        )
+    if env.get("VERCEL") and not env.get("CRON_SECRET"):
+        problems.append("CRON_SECRET is required on Vercel so only Vercel Cron can trigger cleanup")
     try:
         limits = RateLimits.from_env(env)
         if None in (limits.client, limits.lab_create, limits.lab, limits.auth):

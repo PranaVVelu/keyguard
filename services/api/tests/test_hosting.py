@@ -310,3 +310,72 @@ def test_hosted_postgres_urls_are_normalised():
     assert normalize_url("postgresql+psycopg://u@h/db") == "postgresql+psycopg://u@h/db"
     assert normalize_url("sqlite:///x.db") == "sqlite:///x.db"
     assert production_problems({**GOOD, "KEYGUARD_DATABASE_URL": "postgres://u:p@h/db"}) == []
+
+
+# --- Vercel Services mode (D-013): platform-edge client IP, cron cleanup, Neon's DATABASE_URL -----------
+
+
+@pytest.fixture
+def edge(tmp_path, monkeypatch):
+    monkeypatch.setenv("KEYGUARD_CLIENT_IP_HEADER", "X-Real-IP")
+    app = create_app(f"sqlite:///{tmp_path / 'edge.db'}", clock=lambda: NOW, cleanup_interval=0,
+                     rate_limits=RateLimits(client=None, lab_create=Limit(1, 60), lab=None, auth=None))
+    with TestClient(app) as c:
+        yield c
+    app.state.engine.dispose()
+
+
+def test_platform_ip_header_is_the_rate_limit_key(edge):
+    assert edge.post("/api/labs", headers={"X-Real-IP": "198.51.100.1"}).status_code == 201
+    assert edge.post("/api/labs", headers={"X-Real-IP": "198.51.100.1"}).status_code == 429
+    assert edge.post("/api/labs", headers={"X-Real-IP": "198.51.100.2"}).status_code == 201
+    # X-Forwarded-For isn't consulted in this mode.
+    assert edge.post("/api/labs", headers={"X-Real-IP": "198.51.100.1", "X-Forwarded-For": "203.0.113.9"}).status_code == 429
+
+
+def test_invalid_platform_header_falls_back_to_the_peer(edge):
+    assert edge.post("/api/labs", headers={"X-Real-IP": "nonsense"}).status_code == 201
+    assert edge.post("/api/labs").status_code == 429  # same fallback key: the direct peer
+
+
+def test_cron_cleanup_requires_the_secret(client, monkeypatch, clock):
+    assert client.get("/api/internal/cleanup").status_code == 404  # no CRON_SECRET configured: endpoint is inert
+    monkeypatch.setenv("CRON_SECRET", "c" * 32)
+    assert client.get("/api/internal/cleanup").status_code == 404
+    assert client.get("/api/internal/cleanup", headers={"Authorization": "Bearer wrong"}).status_code == 404
+    lab = client.post("/api/labs").json()
+    clock.t += 25 * 3600
+    ok = client.get("/api/internal/cleanup", headers={"Authorization": f"Bearer {'c' * 32}"})
+    assert ok.status_code == 200 and ok.json()["labs_deleted"] == 1
+    assert lab["lab_id"]
+
+
+def test_database_url_falls_back_to_neons_variable():
+    from app.config import database_url
+
+    assert database_url({"DATABASE_URL": "postgres://n/db"}) == "postgres://n/db"
+    assert database_url({"KEYGUARD_DATABASE_URL": "postgresql://k/db", "DATABASE_URL": "postgres://n/db"}) == "postgresql://k/db"
+    assert database_url({}) == "sqlite:///./keyguard.db"
+
+
+def test_vercel_production_config():
+    env = {k: v for k, v in GOOD.items() if k not in ("KEYGUARD_TRUSTED_PROXIES", "KEYGUARD_DATABASE_URL")}
+    env.update({"DATABASE_URL": "postgres://u:p@neon/db", "KEYGUARD_CLIENT_IP_HEADER": "x-real-ip",
+                "VERCEL": "1", "CRON_SECRET": "c" * 32})
+    assert production_problems(env) == []
+    without_cron = {k: v for k, v in env.items() if k != "CRON_SECRET"}
+    assert any("CRON_SECRET" in p for p in production_problems(without_cron))
+
+
+def test_asgi_entrypoint_builds_the_app(monkeypatch, tmp_path):
+    import importlib
+    import sys
+
+    monkeypatch.setenv("KEYGUARD_DATABASE_URL", f"sqlite:///{tmp_path / 'asgi.db'}")
+    monkeypatch.setenv("KEYGUARD_CLEANUP_INTERVAL", "0")
+    sys.modules.pop("app.asgi", None)
+    mod = importlib.import_module("app.asgi")
+    with TestClient(mod.app) as c:
+        assert c.get("/api/health").json()["status"] == "ok"
+    mod.app.state.engine.dispose()
+    sys.modules.pop("app.asgi", None)

@@ -1,7 +1,7 @@
 # Security Test Evidence
 
 Last run: 2026-11-12 (Sprint 11), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless; SQLite WAL and PostgreSQL 16).
-**Backend: 391 passed, 0 failed, on SQLite and on PostgreSQL** (`cd services/api && uv run pytest -v`; set
+**Backend: 397 passed, 0 failed, on SQLite and on PostgreSQL** (`cd services/api && uv run pytest -v`; set
 `KEYGUARD_TEST_DATABASE_URL` to a PostgreSQL URL for the second run).
 **Web unit: 73 passed, 0 failed** (`cd apps/web && npm test`).
 **End-to-end: 17 passed in direct mode, 20 in proxy mode, 0 failed** (`cd apps/web && npm run e2e`, then again with
@@ -329,6 +329,9 @@ Removing only the up-front ownership check in `save_lab` was not caught, because
 | **Free-subdomain proxy mode:** the API refuses requests without the proxy secret (except health) and refuses forged secrets; the proxy-vouched IP is the rate-limit key; `X-Forwarded-For` is ignored in this mode | `test_requests_that_skip_the_proxy_are_refused`, `test_proxy_vouched_ip_is_the_rate_limit_key`, `test_a_non_ip_client_header_falls_back_to_the_peer` |
 | The web proxy forwards only plain path segments to the fixed API origin and only allow-listed headers, and replaces client-sent proxy headers | `apps/web/tests/proxy.test.ts` (4 tests) |
 | **The whole e2e suite passes in proxy mode** (browser → web origin → API with secret): 20 tests, including passkeys and cookies through the proxy. The page contacts only its own origin; path tricks get 400; direct API calls get 403 | `KEYGUARD_E2E_MODE=proxy npm run e2e`; CI runs e2e in both modes |
+
+| **Vercel Services mode:** the edge's `x-real-ip` is the rate-limit key and `X-Forwarded-For` is ignored; an invalid header falls back to the peer; the cron cleanup endpoint is inert without `CRON_SECRET` and refuses a wrong bearer; `DATABASE_URL` fallback; the Vercel production config passes only with `CRON_SECRET`; the ASGI entry point boots | `test_platform_ip_header_is_the_rate_limit_key`, `test_invalid_platform_header_falls_back_to_the_peer`, `test_cron_cleanup_requires_the_secret`, `test_database_url_falls_back_to_neons_variable`, `test_vercel_production_config`, `test_asgi_entrypoint_builds_the_app` |
+| `vercel.json` services and routing work: checked with `vercel dev --local` (CLI 65.15). Both services start, `/api/*` reaches FastAPI with the original path, and start lab → enroll → unlock is ALLOWED with the page contacting only its own origin | manual, 2026-11-12 |
 
 Mutation check (manual, all reverted). These were each caught:
 - trusting `X-Forwarded-For` from any peer;
