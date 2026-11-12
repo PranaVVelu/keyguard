@@ -20,12 +20,16 @@ export interface Vehicle {
   lock_state: "locked" | "unlocked";
 }
 
+export type CredentialType = "phone" | "card" | "fob";
+
 export interface DigitalKey {
   id: string;
   vehicle_id: string;
   label: string;
   fingerprint: string;
   status: "active" | "revoked";
+  credential_type: CredentialType;
+  last_counter: number; // kg-fob-v1 only
   created_at: number;
   revoked_at: number | null;
 }
@@ -67,12 +71,17 @@ export async function listKeys(session: LabSession): Promise<DigitalKey[]> {
 
 export async function enrollKey(
   session: LabSession,
-  input: { vehicleId: string; publicKey: string; label: string },
+  input: { vehicleId: string; publicKey: string; label: string; credentialType?: CredentialType },
 ): Promise<DigitalKey> {
   return request<DigitalKey>(`/api/labs/${session.labId}/keys`, {
     method: "POST",
     session,
-    body: JSON.stringify({ vehicle_id: input.vehicleId, public_key: input.publicKey, label: input.label }),
+    body: JSON.stringify({
+      vehicle_id: input.vehicleId,
+      public_key: input.publicKey,
+      label: input.label,
+      credential_type: input.credentialType ?? "phone",
+    }),
   });
 }
 
@@ -239,4 +248,36 @@ export async function listEvents(session: LabSession, query: string): Promise<Ev
 
 export async function getEventSummary(session: LabSession): Promise<EventSummary> {
   return request<EventSummary>(`/api/labs/${session.labId}/events/summary`, { session });
+}
+
+// --- Key fob (kg-fob-v1, D-010) ---------------------------------------------------------------------
+
+export interface FobDecision {
+  decision: "allow" | "deny";
+  reason: string | null;
+  key_id: string;
+  vehicle_id: string | null;
+  action: Action;
+  counter: number;
+  last_counter: number | null;
+  lock_state: "locked" | "unlocked" | null;
+  duration_ms: number;
+  trace: TraceStep[];
+}
+
+export async function pressFob(
+  session: LabSession,
+  input: { vehicleId: string; keyId: string; action: Action; counter: number; signature: string },
+): Promise<FobDecision> {
+  return request<FobDecision>(`/api/labs/${session.labId}/fob`, {
+    method: "POST",
+    session,
+    body: JSON.stringify({
+      vehicle_id: input.vehicleId,
+      key_id: input.keyId,
+      action: input.action,
+      counter: input.counter,
+      signature: input.signature,
+    }),
+  });
 }

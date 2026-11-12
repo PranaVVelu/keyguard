@@ -31,6 +31,8 @@ test("event labels and reason descriptions", () => {
   assert.equal(eventLabel("key_revoked"), "Key revoked");
   assert.equal(eventLabel("scenario_replay"), "Scenario · replay");
   assert.equal(eventLabel("mystery"), "mystery");
+  assert.equal(eventLabel("fob_unlock"), "Fob press · unlock");
+  assert.match(describeReason("COUNTER_REPLAYED"), /replay/i);
   assert.match(describeReason("CHALLENGE_CONSUMED"), /replay/i);
   assert.equal(describeReason("SOMETHING_NEW"), "SOMETHING_NEW"); // unknown codes shown verbatim
 });

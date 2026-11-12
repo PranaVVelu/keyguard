@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { LabMeta, StartLab } from "@/components/LabBar";
-import { ApiError, enrollKey, getVehicles, listKeys, revokeKey, type DigitalKey, type Vehicle } from "@/lib/api";
+import {
+  ApiError,
+  enrollKey,
+  getVehicles,
+  listKeys,
+  revokeKey,
+  type CredentialType,
+  type DigitalKey,
+  type Vehicle,
+} from "@/lib/api";
+import { CREDENTIAL_ORDER, CREDENTIALS } from "@/lib/credentials";
 import { exportPublicKey, generateDeviceKey, publicKeyFingerprint } from "@/lib/crypto";
 import { listKeysForLab, saveKey } from "@/lib/keystore";
 import { useLab } from "@/lib/use-lab";
@@ -15,7 +25,8 @@ export default function KeysPage() {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [keys, setKeys] = useState<DigitalKey[]>([]);
   const [localKeyIds, setLocalKeyIds] = useState<Set<string>>(new Set());
-  const [label, setLabel] = useState("My phone");
+  const [label, setLabel] = useState(CREDENTIALS.phone.defaultName);
+  const [credentialType, setCredentialType] = useState<CredentialType>("phone");
   const [steps, setSteps] = useState<Step[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +69,12 @@ export default function KeysPage() {
       const localFp = await publicKeyFingerprint(spki);
       push({ label: "Exported public key only (SPKI)", detail: `sha256 ${localFp}`, state: "done" });
 
-      const enrolled = await enrollKey(session, { vehicleId: vehicle.id, publicKey: spki, label: label.trim() });
+      const enrolled = await enrollKey(session, {
+        vehicleId: vehicle.id,
+        publicKey: spki,
+        label: label.trim(),
+        credentialType,
+      });
       const match = enrolled.fingerprint === localFp;
       push({
         label: match ? "Server accepted and stored the public key" : "Server fingerprint mismatch",
@@ -73,6 +89,8 @@ export default function KeysPage() {
         privateKey: pair.privateKey,
         fingerprint: localFp,
         createdAt: enrolled.created_at,
+        credentialType: enrolled.credential_type,
+        ...(enrolled.credential_type === "fob" ? { counter: 0 } : {}),
       });
       push({ label: "Saved private key handle to IndexedDB", detail: "survives refresh; bytes not readable", state: "done" });
       await refresh();
@@ -135,6 +153,39 @@ export default function KeysPage() {
               Your browser generates the key pair. Only the public key is sent to the server; the private key stays here
               and can&apos;t be exported.
             </p>
+            <fieldset className="mt-4">
+              <legend className="text-sm text-muted">Credential type</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {CREDENTIAL_ORDER.map((t) => (
+                  <label
+                    key={t}
+                    className={`cursor-pointer rounded-md border p-3 text-sm ${
+                      credentialType === t ? "border-accent bg-bg" : "border-line hover:bg-bg"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="credential-type"
+                        value={t}
+                        checked={credentialType === t}
+                        onChange={() => {
+                          // Only replace the name if the user hasn't typed their own.
+                          if (CREDENTIAL_ORDER.some((o) => CREDENTIALS[o].defaultName === label)) {
+                            setLabel(CREDENTIALS[t].defaultName);
+                          }
+                          setCredentialType(t);
+                        }}
+                        className="accent-[var(--accent)]"
+                      />
+                      <span className="font-medium">{CREDENTIALS[t].label}</span>
+                    </span>
+                    <span className="mt-1 block text-xs text-muted">{CREDENTIALS[t].summary}</span>
+                    <span className="mt-1 block font-mono text-[11px] text-muted">{CREDENTIALS[t].protocol}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <form onSubmit={onEnroll} className="mt-4 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-muted">Label</span>
@@ -186,7 +237,12 @@ export default function KeysPage() {
                 {keys.map((k) => (
                   <li key={k.id} className="rounded-lg border border-line bg-panel p-5">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="font-medium">{k.label}</p>
+                      <p className="font-medium">
+                        {k.label}
+                        <span className="ml-2 font-mono text-xs font-normal text-muted">
+                          {CREDENTIALS[k.credential_type ?? "phone"].label}
+                        </span>
+                      </p>
                       <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs uppercase">
                         {k.status}
                       </span>
@@ -204,6 +260,12 @@ export default function KeysPage() {
                         <dt className="inline">enrolled </dt>
                         <dd className="inline">{new Date(k.created_at * 1000).toLocaleString()}</dd>
                       </div>
+                      {k.credential_type === "fob" && (
+                        <div>
+                          <dt className="inline">counter </dt>
+                          <dd className="inline">last accepted by the car: {k.last_counter}</dd>
+                        </div>
+                      )}
                       <div>
                         <dt className="inline">private key </dt>
                         <dd className="inline">{localKeyIds.has(k.id) ? "in this browser" : "not in this browser"}</dd>

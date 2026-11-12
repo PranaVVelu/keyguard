@@ -1,6 +1,6 @@
 # Security Test Evidence
 
-Last run: 2026-11-09 (Sprint 8), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless, SQLite WAL).
+Last run: 2026-11-12 (Sprint 9), local (macOS arm64, Python 3.12.16, Node 24.14, Chromium 141 headless, SQLite WAL).
 **Backend: 215 passed, 0 failed** (`cd services/api && uv run pytest -v`).
 **Web unit: 50 passed, 0 failed** (`cd apps/web && npm test`).
 **End-to-end: 7 passed, 0 failed** (`cd apps/web && npm run e2e`: real Chromium, real API, production web build).
@@ -238,6 +238,35 @@ on their `unlock` action, so it unlocks the car. The hardened engine rebuilds th
 Mutation check: with `ClientBytesVerifier` changed to verify over `encode_signed_message(issued.fields)` (the
 hardened behaviour), 8 substitute tests **failed** (the scenario, its 5 reproducibility runs, the run-history test and
 the root-cause test). Reverted (no diff).
+
+## Sprint 9: credential types (F10) and proximity (F11)
+
+| Property | Evidence |
+|----------|----------|
+| kg-fob-v1 encoding is framed and domain-separated; Python and Web Crypto agree byte for byte and on signatures | `test_fob_encoding_*`, `test_fob_vectors_match_the_python_encoder`, `apps/web/tests/fob.test.ts` (shared `docs/test-vectors/kg-fob-v1.json`) |
+| A press is allowed only with a rising counter; replays and lower counters get `COUNTER_REPLAYED` | `test_replaying_an_accepted_press_is_denied`, `test_lower_counter_is_denied_even_if_never_used` |
+| 32-step resync window; beyond it `COUNTER_OUT_OF_WINDOW`, and the counter doesn't move | `test_window_allows_resync_after_missed_presses_but_not_beyond` |
+| **An invalid signature never advances the counter**, so junk can't lock a fob out | `test_invalid_signature_never_advances_the_counter` |
+| The signature binds the action, counter and vehicle | `test_signature_binds_action_counter_and_vehicle[…]` |
+| Revoked, wrong vehicle, unknown and other-lab keys are denied | `test_revoked_fob_is_denied`, `test_fob_for_another_vehicle_is_denied`, `test_unknown_key_is_denied`, `test_another_labs_fob_is_unknown_here` |
+| **No protocol confusion:** fob keys get no challenges, a planted challenge still fails `KEY_TYPE_MISMATCH`, phone and card keys are refused at `/fob`, and a fob-domain signature fails as a challenge response | four cross-protocol tests in `test_fob_api.py` |
+| 16 concurrent identical presses → exactly one allow (×3 rounds) | `test_concurrent_identical_presses_at_most_one_allows` |
+| Attack Lab: `fob-replay` (vulnerable allows, hardened denies), `fob-capture` (both allow, a labelled known limitation), `relay` (both allow) | `test_new_scenarios_through_the_api[…]`, reproducibility ×3 each |
+| Browser: fob unlock and lock with counters 1 and 2; replaying the captured request byte for byte is denied; a card tap toggles; the proximity slider value is never sent | `apps/web/e2e/credentials.spec.ts` |
+| A browser fob that reused its counter is caught by e2e (mutation: counter fixed at 1 → test failed) | manual mutation, reverted |
+
+Engine mutation check (manual, all reverted). These were each caught by failing tests:
+- removing the replay check (10 tests failed);
+- removing the window check;
+- removing the `key_is_fob` check;
+- removing the vehicle binding;
+- removing the signature check;
+- letting the authenticate engine accept fobs;
+- issuing challenges for fobs;
+- giving fobs the same domain tag as kg-auth-v1.
+
+Removing `status == 'active'` from the counter UPDATE was not caught. That's an equivalent mutant: status is checked earlier
+in the same `BEGIN IMMEDIATE` transaction, so a revoke can't interleave on SQLite.
 
 ## Known gaps
 

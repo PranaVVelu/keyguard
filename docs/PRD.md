@@ -43,8 +43,8 @@ decisions made by the backend.
 | F07 | P0 | Automated tests | ✅ pytest, node:test, Playwright, structured matrix; all run in CI and block merges |
 | F08 | P1 | Security event dashboard | ✅ Security Analytics: searchable log, pass/fail, failure categories (D-009) |
 | F09 | P1 | Tampering scenarios | ✅ Attack Lab `tamper` scenario: stapled and byte-flipped signatures are denied `SIGNATURE_INVALID` by both verifiers (server rebuilds the signed bytes); also matrix MX-02 and the e2e in-flight tamper test |
-| F10 | P2 | Key card / fob simulations | Not started |
-| F11 | P2 | Proximity visualization | Not started |
+| F10 | P2 | Key card / fob simulations | ✅ Three fictional credential types (D-010): phone and passive key card (challenge-response), and key fob (kg-fob-v1 rolling counter). Plus Attack Lab `fob-replay` and `fob-capture` |
+| F11 | P2 | Proximity visualization | ✅ `/proximity` (conceptual, D-011): an illustrative slider that's never sent, plus the real backend `relay` scenario, which both verifiers accept |
 | F12 | P2 | Accounts | Not started (labs are anonymous and disposable, D-002) |
 
 ## Success metrics (spec §11): where we are

@@ -217,3 +217,59 @@ event retention.
   insertion order.
 - **No migrations in the MVP:** on startup the schema is checked, and a stale database is refused with a message saying to
   delete it. Lab data is disposable.
+
+---
+
+## D-010 Credential types: phone, key card, key fob (F10, P2) — ACCEPTED (2026-11-12, Sprint 9)
+
+All three are **fictional models**. None of them copies a real card, fob or radio protocol. Every type uses a
+non-extractable Web Crypto P-256 key, and the server stores only the public key (F02 unchanged).
+
+| Type | Protocol | Model |
+|------|----------|-------|
+| `phone` | kg-auth-v1 challenge-response (D-001, D-003) | You choose the action, then the browser signs the server's challenge |
+| `card` | kg-auth-v1 challenge-response | **Passive**: a tap signs whatever challenge is presented. The tap asks for the opposite of the current backend lock state |
+| `fob` | **kg-fob-v1 rolling counter** (below) | A button press signs `(counter, action)` with no server challenge |
+
+**kg-fob-v1 encoding** uses the same framing as D-001, but a different domain tag, so a fob signature can never verify as
+a challenge response or the other way round:
+- `DOMAIN_TAG_FOB = b"KEYGUARD-FOB\x00\x01"`;
+- then length-prefixed fields: `protocol_version` (`"kg-fob-v1"`), `vehicle_id`, `key_id`, `counter` (decimal,
+  1 … 2^53−1) and `action`.
+
+**Server rules for `POST /api/labs/{id}/fob`.** These run in one transaction, in this order:
+1. The key exists in this lab.
+2. The key is a fob (`KEY_TYPE_MISMATCH` otherwise).
+3. It's active and bound to the vehicle.
+4. The signature is valid over bytes rebuilt from the stored key ID and vehicle ID plus the request's counter and action.
+5. The counter is fresh. A conditional `UPDATE … SET last_counter = :c WHERE last_counter < :c AND :c <= last_counter + 32`
+   decides this atomically: `COUNTER_REPLAYED` if `c ≤ last`, `COUNTER_OUT_OF_WINDOW` if `c > last + 32`.
+6. Commit the vehicle state.
+
+Only a valid signature can advance the counter. Unsigned junk can't burn a fob's counter.
+
+**Cross-protocol confusion:**
+- the challenge endpoint refuses fob keys;
+- the authenticate engine denies fob keys (`KEY_TYPE_MISMATCH`, defense in depth);
+- the fob endpoint refuses phone and card keys.
+
+**The browser counter** is stored with the key in IndexedDB and incremented *before* signing, so a crash never reuses a
+counter. The 32-step window lets a fob recover after presses that never reached the car.
+
+**Known limitation (taught, not hidden):** a fob code captured *before* it reaches the car is still valid later, as
+long as its counter is above the last accepted one and within the window. The Attack Lab `fob-capture` scenario shows
+the hardened verifier accepting it. Challenge-response credentials don't have this weakness, because each challenge is
+server-fresh, single use and expires in 30 s.
+
+## D-011 Proximity is conceptual (F11, P2) — ACCEPTED (2026-11-12, Sprint 9)
+
+- A `/proximity` page, titled "Proximity (conceptual)", shows the car, the owner's card and an optional relay pair.
+  - Its distance slider is **purely illustrative**: it is never sent to the server and never changes a decision.
+  - The page says so on screen.
+- The decision it shows comes from a real backend Attack Lab scenario, **`relay`**. Attacker A, standing by the car,
+  asks for a challenge and forwards it to attacker B, who is next to the owner 40 m away. The owner's passive card signs
+  it, and the signature travels back.
+- **Both the vulnerable verifier and the hardened engine allow it** (expected allow/allow). Nothing in kg-auth-v1 carries
+  distance or timing, which restates the threat model's non-claim: a valid signature does not prove proximity.
+- Real-world mitigations (distance bounding, UWB time-of-flight, motion or user-presence checks) are described as
+  context only. **None is implemented or claimed.**

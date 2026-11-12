@@ -5,11 +5,20 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, Request
 
 from app.errors import ApiError
-from app.models.schemas import AuthenticateRequest, ChallengeIssued, ChallengeRequest, DecisionOut, ErrorResponse
+from app.models.schemas import (
+    AuthenticateRequest,
+    ChallengeIssued,
+    ChallengeRequest,
+    DecisionOut,
+    ErrorResponse,
+    FobDecisionOut,
+    FobPressRequest,
+)
 from app.routes.labs import require_lab
 from app.security.authenticate import authenticate
 from app.security.challenges import MAX_OPEN_CHALLENGES_PER_LAB, count_open_challenges, issue_challenge
 from app.security.events import record_event
+from app.security.fob import press_fob
 from app.security.keys import get_key_auth_info
 from app.security.protocol import PROTOCOL_VERSION
 
@@ -20,6 +29,7 @@ _ISSUE_ERRORS = {
     "KEY_REVOKED": (403, "Key has been revoked"),
     "VEHICLE_MISMATCH": (422, "Key is not enrolled for this vehicle"),
     "CHALLENGE_LIMIT_REACHED": (429, "Too many open challenges in this lab"),
+    "KEY_TYPE_MISMATCH": (422, "Key fobs use the rolling-counter endpoint, not challenges"),
 }
 
 
@@ -45,6 +55,8 @@ def post_challenge(body: ChallengeRequest, request: Request, lab_id: str = Depen
             code = "KEY_REVOKED"
         elif info.vehicle_id != body.vehicle_id:
             code = "VEHICLE_MISMATCH"
+        elif info.credential_type == "fob":
+            code = "KEY_TYPE_MISMATCH"
         elif count_open_challenges(conn, lab_id=lab_id, now=now) >= MAX_OPEN_CHALLENGES_PER_LAB:
             code = "CHALLENGE_LIMIT_REACHED"
         else:
@@ -93,3 +105,20 @@ def post_authenticate(body: AuthenticateRequest, request: Request, lab_id: str =
         clock=state.clock,
     )
     return DecisionOut(**asdict(decision))
+
+
+@router.post("/{lab_id}/fob", response_model=FobDecisionOut, responses={404: {"model": ErrorResponse}})
+def post_fob_press(body: FobPressRequest, request: Request, lab_id: str = Depends(require_lab)) -> FobDecisionOut:
+    """A key-fob button press (kg-fob-v1 rolling counter, D-010). Allow and deny are both 200, as for authenticate."""
+    state = request.app.state
+    decision = press_fob(
+        state.engine,
+        lab_id=lab_id,
+        key_id=body.key_id,
+        vehicle_id=body.vehicle_id,
+        action=body.action,
+        counter=body.counter,
+        signature=body.signature,
+        clock=state.clock,
+    )
+    return FobDecisionOut(**asdict(decision))

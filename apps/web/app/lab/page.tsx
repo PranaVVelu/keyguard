@@ -63,6 +63,11 @@ function ModeColumn({ run, result }: { run: ScenarioModeRun; result: ScenarioRes
       <p className="mt-1 font-mono text-xs text-muted">
         expected {expected} · observed {run.attack_decision} · {asExpected ? "as expected" : "UNEXPECTED"}
       </p>
+      {run.mode === "hardened" && expected === "allow" && (
+        <p className="mt-2 rounded-md border border-line bg-warn-bg px-2 py-1 text-xs text-warn-fg">
+          Known limitation: the production engine accepts this by design. See the takeaway below.
+        </p>
+      )}
     </section>
   );
 }

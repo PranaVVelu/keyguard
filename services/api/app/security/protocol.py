@@ -78,6 +78,32 @@ def encode_signed_message(fields: SignedFields) -> bytes:
     )
 
 
+# --- kg-fob-v1 (D-010): rolling-counter credential, no server challenge ----------------------------------
+
+DOMAIN_TAG_FOB = b"KEYGUARD-FOB\x00\x01"
+FOB_PROTOCOL_VERSION = "kg-fob-v1"
+MAX_FOB_COUNTER = 2**53 - 1  # largest integer JavaScript represents exactly
+
+
+@dataclass(frozen=True)
+class FobFields:
+    vehicle_id: str
+    key_id: str
+    counter: int
+    action: str
+
+
+def encode_fob_message(fields: FobFields) -> bytes:
+    """Same framing as kg-auth-v1 but a different domain tag, so the two can never be confused."""
+    if fields.action not in ACTIONS:
+        raise ProtocolError("ACTION_INVALID")
+    if type(fields.counter) is not int or not 1 <= fields.counter <= MAX_FOB_COUNTER:
+        raise ProtocolError("COUNTER_INVALID")
+    return DOMAIN_TAG_FOB + b"".join(
+        _frame(v) for v in (FOB_PROTOCOL_VERSION, fields.vehicle_id, fields.key_id, str(fields.counter), fields.action)
+    )
+
+
 def load_public_key(spki_b64url: str) -> tuple[ec.EllipticCurvePublicKey, bytes]:
     """Parse an SPKI DER P-256 public key; returns (key, canonical SPKI bytes)."""
     try:

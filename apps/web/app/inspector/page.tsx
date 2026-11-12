@@ -11,6 +11,7 @@ import { ClientRefusal, performAction, replay, type FlowArtifacts, type FlowStag
 import { b64urlDecode } from "@/lib/encoding";
 import { getKey } from "@/lib/keystore";
 import { useLab } from "@/lib/use-lab";
+import { credentialTypeOf } from "@/lib/credentials";
 import { useLabKeys } from "@/lib/use-keys";
 
 const ORDER: FlowStage[] = ["challenge", "check", "sign", "verify"];
@@ -77,7 +78,10 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
 
 export default function InspectorPage() {
   const { session, ready, start, end, lost, notice } = useLab();
-  const { vehicle, usable, refresh } = useLabKeys(session, lost);
+  const { vehicle, usable: allUsable, refresh } = useLabKeys(session, lost);
+  // Key fobs have no challenge exchange to inspect (kg-fob-v1, D-010); their presses are in the Garage.
+  const usable = allUsable.filter((k) => credentialTypeOf(k) !== "fob");
+  const onlyFobs = allUsable.length > 0 && usable.length === 0;
   const [selectedKey, setSelectedKey] = useState("");
   const [action, setAction] = useState<Action>("unlock");
   const [art, setArt] = useState<FlowArtifacts | null>(null);
@@ -152,9 +156,11 @@ export default function InspectorPage() {
         <StartLab onStart={onStart} busy={busy} error={error} notice={notice} />
       ) : usable.length === 0 ? (
         <p className="text-sm">
-          No usable key in this browser.{" "}
+          {onlyFobs
+            ? "Key fobs don't use server challenges, so there's no exchange to step through here. Use them in the Garage, or "
+            : "No usable key in this browser. "}
           <Link href="/keys" className="text-accent underline underline-offset-4">
-            Enroll a key
+            {onlyFobs ? "enroll a phone or card" : "Enroll a key"}
           </Link>{" "}
           to inspect an exchange.
         </p>

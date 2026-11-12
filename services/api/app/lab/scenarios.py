@@ -1,4 +1,4 @@
-"""Attack Lab scenarios: vulnerable vs hardened, side by side, on disposable state (spec F05, F09, D-005).
+"""Attack Lab scenarios: vulnerable vs hardened, side by side, on disposable state (F05, F09, F10, F11, D-005).
 
 Each run builds fresh, throwaway state for BOTH modes:
   * vulnerable: an in-memory verifier from app.lab.vulnerable (VulnerableVerifier, or ClientBytesVerifier
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -21,13 +21,15 @@ from pathlib import Path
 from app.db import make_engine
 from app.evidence.client_sim import SimulatedClientKey
 from app.lab.vulnerable.client_bytes import ClientBytesVerifier
+from app.lab.vulnerable.fob import CounterlessFobReceiver
 from app.lab.vulnerable.verifier import VulnerableVerifier
 from app.security.authenticate import authenticate
 from app.security.challenges import issue_challenge
 from app.security.encoding import b64url_decode, b64url_encode
+from app.security.fob import press_fob
 from app.security.keys import enroll_key
 from app.security.labs import create_lab
-from app.security.protocol import SignedFields, encode_signed_message
+from app.security.protocol import FobFields, SignedFields, encode_fob_message, encode_signed_message
 
 
 @dataclass
@@ -120,6 +122,65 @@ SCENARIOS: dict[str, ScenarioInfo] = {
             "lock challenge being consumed. The hardened engine never accepts signed bytes from the client: it "
             "rebuilds them from the stored challenge (its ID, nonce, action and expiry), so the old signature fails "
             "with SIGNATURE_INVALID."
+        ),
+    ),
+    "fob-replay": ScenarioInfo(
+        id="fob-replay",
+        title="Replay a recorded key-fob press",
+        description=(
+            "Key fobs have no server challenge: each press signs a counter and an action (kg-fob-v1, D-010). The owner "
+            "unlocks and then locks with the fob. An attacker who recorded the earlier unlock press transmits it again, "
+            "unchanged."
+        ),
+        expected={"vulnerable": "allow", "hardened": "deny"},
+        attack_label="Fob replay",
+        mode_notes={
+            "vulnerable": "Checks the fob's signature but keeps no counter",
+            "hardened": "Production fob engine: counter must rise, advanced atomically",
+        },
+        takeaway=(
+            "A rolling counter is the fob's replacement for a server challenge: the car remembers the highest counter "
+            "it accepted and refuses anything at or below it. The signature is genuine in both runs."
+        ),
+    ),
+    "fob-capture": ScenarioInfo(
+        id="fob-capture",
+        title="Use a fob press the car never received",
+        description=(
+            "The owner locks the car and walks away. Later the owner presses unlock out of range, or while an attacker "
+            "jams the signal and records it, so the car never receives that press. The attacker transmits the "
+            "recorded press afterwards."
+        ),
+        expected={"vulnerable": "allow", "hardened": "allow"},
+        attack_label="Captured unused press",
+        mode_notes={
+            "vulnerable": "Keeps no counter at all",
+            "hardened": "Production fob engine: accepts any fresh counter within the window",
+        },
+        takeaway=(
+            "This is a real limitation of counter schemes, and the hardened engine accepts it by design: the recorded "
+            "press carries a counter the car hasn't seen yet, so it looks exactly like a fresh press. Phone and card keys "
+            "don't have this weakness, because every challenge is chosen by the car, used once and expires in 30 seconds."
+        ),
+    ),
+    "relay": ScenarioInfo(
+        id="relay",
+        title="Relay the owner's key card from 40 m away",
+        description=(
+            "The owner's key card is passive: a tap signs whatever challenge it's shown. Attacker A stands by the car and "
+            "requests an unlock challenge. Attacker B stands next to the owner, 40 metres away, and holds a reader near "
+            "the owner's bag. The challenge goes to the card, the card signs it, and the signature comes back."
+        ),
+        expected={"vulnerable": "allow", "hardened": "allow"},
+        attack_label="Relayed response",
+        mode_notes={
+            "vulnerable": "Replayable verifier; signature checks still pass",
+            "hardened": "Production engine: fresh, single-use challenge, genuine signature",
+        },
+        takeaway=(
+            "Nothing in the protocol carries distance or timing, so both verifiers see a fresh challenge with a genuine "
+            "signature and allow it. A valid signature does not prove the key is near the car. Real systems add distance "
+            "bounding or ultra-wideband time-of-flight; KeyGuard doesn't implement or claim either (D-011)."
         ),
     ),
 }
@@ -316,7 +377,7 @@ def _substitute_vulnerable(now: int) -> ModeRun:
 
 
 @contextmanager
-def _hardened_sandbox(now: int) -> Iterator[tuple]:
+def _hardened_sandbox(now: int, credential_type: str = "phone") -> Iterator[tuple]:
     """A throwaway SQLite lab with one enrolled owner key; yields (key, issue, submit) bound to it."""
     with tempfile.TemporaryDirectory() as tmp:
         engine = make_engine(f"sqlite:///{Path(tmp) / 'scenario.db'}")
@@ -325,7 +386,8 @@ def _hardened_sandbox(now: int) -> Iterator[tuple]:
             with engine.begin() as conn:
                 lab = create_lab(conn, now=now)
                 key_id = enroll_key(
-                    conn, lab_id=lab.lab_id, vehicle_id=lab.vehicle_id, spki_b64url=key.spki_b64url, label="owner", now=now
+                    conn, lab_id=lab.lab_id, vehicle_id=lab.vehicle_id, spki_b64url=key.spki_b64url, label="owner",
+                    now=now, credential_type=credential_type,
                 )
 
             def issue(action: str) -> SignedFields:
@@ -365,10 +427,162 @@ def _substitute_hardened(now: int) -> ModeRun:
     return run
 
 
+# --- Key fob scenarios (D-010) ---------------------------------------------------------------------
+
+
+def _fob_sign(key: SimulatedClientKey, vehicle_id: str, key_id: str, counter: int, action: str) -> str:
+    return key.sign_p1363(encode_fob_message(FobFields(vehicle_id, key_id, counter, action)))
+
+
+@contextmanager
+def _fob_sandbox(now: int) -> Iterator[tuple]:
+    """A throwaway lab with one enrolled fob; yields (sign, press) for the real production fob engine."""
+    with tempfile.TemporaryDirectory() as tmp:
+        engine = make_engine(f"sqlite:///{Path(tmp) / 'scenario.db'}")
+        try:
+            key = SimulatedClientKey()
+            with engine.begin() as conn:
+                lab = create_lab(conn, now=now)
+                key_id = enroll_key(conn, lab_id=lab.lab_id, vehicle_id=lab.vehicle_id, spki_b64url=key.spki_b64url,
+                                    label="owner fob", now=now, credential_type="fob")
+
+            def sign(counter: int, action: str) -> str:
+                return _fob_sign(key, lab.vehicle_id, key_id, counter, action)
+
+            def press(counter: int, action: str, signature: str):
+                return press_fob(engine, lab_id=lab.lab_id, key_id=key_id, vehicle_id=lab.vehicle_id, action=action,
+                                 counter=counter, signature=signature, clock=lambda: now)
+
+            yield sign, press
+        finally:
+            engine.dispose()
+
+
+def _counterless(now: int) -> tuple[CounterlessFobReceiver, Callable[[int, str], str]]:
+    key = SimulatedClientKey()
+    vehicle_id, key_id = "veh_" + "V" * 22, "key_" + "V" * 22
+    rx = CounterlessFobReceiver(vehicle_id=vehicle_id, key_id=key_id, spki_b64url=key.spki_b64url)
+    return rx, lambda counter, action: _fob_sign(key, vehicle_id, key_id, counter, action)
+
+
+_FOB_REPLAY_LABELS = (
+    "Owner presses unlock (counter 1); attacker records it",
+    "Owner presses lock (counter 2) and walks away",
+    "Attacker transmits the recorded unlock press (counter 1)",
+)
+
+
+def _fob_replay_vulnerable(now: int) -> ModeRun:
+    run = ModeRun("vulnerable")
+    rx, sign = _counterless(now)
+    recorded = sign(1, "unlock")
+    d, r = rx.press(counter=1, action="unlock", signature=recorded)
+    run.steps.append(Step(1, "owner", _FOB_REPLAY_LABELS[0], d, r, rx.lock_state))
+    d, r = rx.press(counter=2, action="lock", signature=sign(2, "lock"))
+    run.steps.append(Step(2, "owner", _FOB_REPLAY_LABELS[1], d, r, rx.lock_state))
+    d, r = rx.press(counter=1, action="unlock", signature=recorded)
+    run.steps.append(Step(3, "attacker", _FOB_REPLAY_LABELS[2], d, r, rx.lock_state))
+    _attack_outcome(run)
+    return run
+
+
+def _fob_replay_hardened(now: int) -> ModeRun:
+    run = ModeRun("hardened")
+    with _fob_sandbox(now) as (sign, press):
+        recorded = sign(1, "unlock")
+        d = press(1, "unlock", recorded)
+        run.steps.append(Step(1, "owner", _FOB_REPLAY_LABELS[0], d.decision, d.reason, d.lock_state))
+        d = press(2, "lock", sign(2, "lock"))
+        run.steps.append(Step(2, "owner", _FOB_REPLAY_LABELS[1], d.decision, d.reason, d.lock_state))
+        d = press(1, "unlock", recorded)
+        run.steps.append(Step(3, "attacker", _FOB_REPLAY_LABELS[2], d.decision, d.reason, d.lock_state))
+        _attack_outcome(run)
+    return run
+
+
+_FOB_CAPTURE_LABELS = (
+    "Owner presses unlock (counter 1)",
+    "Owner presses lock (counter 2) and walks away",
+    "Attacker transmits a press it recorded while jamming the car (counter 3, never received by the car)",
+)
+
+
+def _fob_capture_vulnerable(now: int) -> ModeRun:
+    run = ModeRun("vulnerable")
+    rx, sign = _counterless(now)
+    d, r = rx.press(counter=1, action="unlock", signature=sign(1, "unlock"))
+    run.steps.append(Step(1, "owner", _FOB_CAPTURE_LABELS[0], d, r, rx.lock_state))
+    d, r = rx.press(counter=2, action="lock", signature=sign(2, "lock"))
+    run.steps.append(Step(2, "owner", _FOB_CAPTURE_LABELS[1], d, r, rx.lock_state))
+    captured = sign(3, "unlock")  # the jammed press: the receiver never saw it
+    d, r = rx.press(counter=3, action="unlock", signature=captured)
+    run.steps.append(Step(3, "attacker", _FOB_CAPTURE_LABELS[2], d, r, rx.lock_state))
+    _attack_outcome(run)
+    return run
+
+
+def _fob_capture_hardened(now: int) -> ModeRun:
+    run = ModeRun("hardened")
+    with _fob_sandbox(now) as (sign, press):
+        d = press(1, "unlock", sign(1, "unlock"))
+        run.steps.append(Step(1, "owner", _FOB_CAPTURE_LABELS[0], d.decision, d.reason, d.lock_state))
+        d = press(2, "lock", sign(2, "lock"))
+        run.steps.append(Step(2, "owner", _FOB_CAPTURE_LABELS[1], d.decision, d.reason, d.lock_state))
+        captured = sign(3, "unlock")
+        d = press(3, "unlock", captured)
+        run.steps.append(Step(3, "attacker", _FOB_CAPTURE_LABELS[2], d.decision, d.reason, d.lock_state))
+        _attack_outcome(run)
+    return run
+
+
+# --- Relay (D-011) --------------------------------------------------------------------------------
+
+_RELAY_LABELS = (
+    "Owner taps the card to lock and walks 40 m away",
+    "Attacker A requests an unlock challenge at the car; attacker B relays it to the owner's card, "
+    "which signs it; the signature is relayed back",
+)
+
+
+def _relay_vulnerable(now: int) -> ModeRun:
+    run = ModeRun("vulnerable")
+    v = VulnerableVerifier()
+    card = SimulatedClientKey()
+    vehicle_id, key_id = "veh_" + "V" * 22, "key_" + "V" * 22
+
+    def issue(action: str) -> SignedFields:
+        return v.issue(vehicle_id=vehicle_id, key_id=key_id, spki_b64url=card.spki_b64url, action=action, now=now)
+
+    lock = issue("lock")
+    d, r = v.verify(challenge_id=lock.challenge_id, signature=_sign(card, lock))
+    run.steps.append(Step(1, "owner", _RELAY_LABELS[0], d, r, v.lock_state))
+    relayed = issue("unlock")
+    d, r = v.verify(challenge_id=relayed.challenge_id, signature=_sign(card, relayed))  # the passive card signs it
+    run.steps.append(Step(2, "attacker", _RELAY_LABELS[1], d, r, v.lock_state))
+    _attack_outcome(run)
+    return run
+
+
+def _relay_hardened(now: int) -> ModeRun:
+    run = ModeRun("hardened")
+    with _hardened_sandbox(now, credential_type="card") as (card, issue, submit):
+        lock = issue("lock")
+        d = submit(lock.challenge_id, _sign(card, lock))
+        run.steps.append(Step(1, "owner", _RELAY_LABELS[0], d.decision, d.reason, d.lock_state))
+        relayed = issue("unlock")
+        d = submit(relayed.challenge_id, _sign(card, relayed))
+        run.steps.append(Step(2, "attacker", _RELAY_LABELS[1], d.decision, d.reason, d.lock_state))
+        _attack_outcome(run)
+    return run
+
+
 _RUNNERS = {
     "replay": (_replay_vulnerable, _replay_hardened),
     "tamper": (_tamper_vulnerable, _tamper_hardened),
     "substitute": (_substitute_vulnerable, _substitute_hardened),
+    "fob-replay": (_fob_replay_vulnerable, _fob_replay_hardened),
+    "fob-capture": (_fob_capture_vulnerable, _fob_capture_hardened),
+    "relay": (_relay_vulnerable, _relay_hardened),
 }
 
 

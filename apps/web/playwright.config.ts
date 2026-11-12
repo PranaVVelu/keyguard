@@ -3,10 +3,10 @@ import { join } from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
 
+import { API_PORT, WEB_PORT } from "./e2e/ports";
+
 // End-to-end suite: real Chromium against a real API and a production build of the web app.
 // Separate ports and a throwaway database, so it never touches a dev server or your local keyguard.db.
-const API_PORT = 8100;
-const WEB_PORT = 3100;
 const DB = join(tmpdir(), `keyguard-e2e-${Date.now()}.db`);
 
 export default defineConfig({

@@ -43,6 +43,10 @@ export const REASON_COPY: Record<string, string> = {
   KEY_LIMIT_REACHED: "Lab key limit reached",
   PUBLIC_KEY_INVALID: "Public key isn't valid SPKI",
   PUBLIC_KEY_UNSUPPORTED: "Only P-256 public keys are supported",
+  COUNTER_REPLAYED: "Fob counter already used: replay blocked",
+  COUNTER_OUT_OF_WINDOW: "Fob counter too far ahead of the last accepted one",
+  COUNTER_INVALID: "Fob counter isn't a valid number",
+  KEY_TYPE_MISMATCH: "Wrong protocol for this credential type",
 };
 
 export function describeReason(code: string): string {
@@ -62,6 +66,8 @@ export function eventLabel(eventType: string): string {
       return `Key ${tail}`;
     case "scenario":
       return `Scenario · ${tail}`;
+    case "fob":
+      return `Fob press · ${tail}`;
     default:
       return eventType;
   }

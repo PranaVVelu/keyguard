@@ -33,7 +33,8 @@ def post_key(body: EnrollKeyRequest, request: Request, lab_id: str = Depends(req
     try:
         with state.engine.begin() as conn:
             key_id = enroll_key(
-                conn, lab_id=lab_id, vehicle_id=body.vehicle_id, spki_b64url=body.public_key, label=body.label, now=now
+                conn, lab_id=lab_id, vehicle_id=body.vehicle_id, spki_b64url=body.public_key, label=body.label, now=now,
+                credential_type=body.credential_type,
             )
             record_event(
                 conn, lab_id=lab_id, event_type="key_enrolled", outcome="success",

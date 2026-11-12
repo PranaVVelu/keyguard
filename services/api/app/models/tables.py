@@ -48,9 +48,14 @@ digital_keys = Table(
     Column("public_key", LargeBinary, nullable=False),  # SPKI DER
     Column("fingerprint", String(64), nullable=False),
     Column("status", String, nullable=False),
+    Column("credential_type", String, nullable=False, server_default="phone"),
+    # kg-fob-v1 only: highest counter accepted so far (D-010). Always 0 for phone and card keys.
+    Column("last_counter", Integer, nullable=False, server_default="0"),
     Column("created_at", Integer, nullable=False),
     Column("revoked_at", Integer),
     CheckConstraint("status IN ('active', 'revoked')", name="ck_key_status"),
+    CheckConstraint("credential_type IN ('phone', 'card', 'fob')", name="ck_key_credential_type"),
+    CheckConstraint("last_counter >= 0", name="ck_key_last_counter"),
     UniqueConstraint("lab_id", "fingerprint", name="uq_key_fingerprint_per_lab"),
 )
 

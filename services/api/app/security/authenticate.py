@@ -142,6 +142,9 @@ def authenticate(
             return deny("key_active_and_bound", "KEY_REVOKED")
         if info.vehicle_id != chl.vehicle_id:
             return deny("key_active_and_bound", "VEHICLE_MISMATCH")
+        if info.credential_type == "fob":
+            # Fobs speak kg-fob-v1 only (D-010). Issuance already refuses them; this is defense in depth.
+            return deny("key_active_and_bound", "KEY_TYPE_MISMATCH")
         trace.ok("key_active_and_bound")
 
         # 5. signature over server-rebuilt canonical bytes

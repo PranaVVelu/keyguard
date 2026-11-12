@@ -54,8 +54,14 @@ counts as demonstrated until a passing test is linked in `SECURITY_TESTS.md`.
 | T12 | Resource exhaustion (challenge/lab spam) | D | Rate limits (per client, per lab, lab creation), lab capacity, TTL cleanup, event retention cap, max keys/open challenges per lab (D-009) | `tests/test_limits_and_cleanup.py` |
 | T13 | Vulnerable lab code reachable from the hardened path | E | Physical module separation + import-graph test (D-005) | `tests/test_lab_isolation.py` |
 | T14 | Weak curve or invalid public key enrolled | S | SPKI must parse as P-256; reject other curves and invalid points | Enrollment negative tests |
+| T15 | Replayed key-fob press (F10) | S | kg-fob-v1 counter must rise; advanced only by a valid signature, in one conditional UPDATE (D-010) | `test_fob_api.py` (replay, window, concurrency, junk can't burn the counter); Attack Lab `fob-replay` |
+| T16 | Protocol confusion between credential types | S/E | Separate domain tags; the challenge endpoint and engine refuse fob keys, and the fob endpoint refuses phone and card keys | `test_fob_api.py` cross-protocol tests |
+| T17 | Fob press captured before it reached the car | S | **Not mitigated by design.** Counters can't detect it; challenge-response credentials avoid it (D-010) | Attack Lab `fob-capture` shows the engine accepting it |
+| T18 | Relay of a passive card (F11) | S | **Out of scope** (non-claim below). Distance bounding and UWB aren't implemented (D-011) | Attack Lab `relay` shows the engine accepting it |
 
 ## Explicit non-claims
+
+- Key fob counters do not stop a press that was captured before the car received it (T17).
 
 - A valid signature does **not** prove physical proximity. Relay attacks are out of scope.
 - Browser non-extractable keys are **not** equivalent to hardware-backed automotive credentials.

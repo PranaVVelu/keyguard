@@ -32,6 +32,7 @@ class EnrollKeyRequest(_Strict):
     # P-256 SPKI DER is 91 bytes, i.e. 122 base64url chars. Allow a little slack and let the parser decide.
     public_key: str = Field(min_length=1, max_length=256)
     label: str = Field(min_length=1, max_length=40)
+    credential_type: Literal["phone", "card", "fob"] = "phone"
 
     @field_validator("label")
     @classmethod
@@ -47,6 +48,8 @@ class DigitalKey(_Strict):
     label: str
     fingerprint: str
     status: Literal["active", "revoked"]
+    credential_type: Literal["phone", "card", "fob"]
+    last_counter: int  # kg-fob-v1 only; 0 for phone and card keys
     created_at: int
     revoked_at: int | None
 
@@ -222,3 +225,24 @@ class EventSummary(_Strict):
     authentication: AuthStats
 
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
+
+
+class FobPressRequest(_Strict):
+    vehicle_id: str = Field(pattern=r"^veh_[A-Za-z0-9_-]{22}$")
+    key_id: str = Field(pattern=r"^key_[A-Za-z0-9_-]{22}$")
+    action: Literal["unlock", "lock"]
+    counter: int = Field(ge=1, le=2**53 - 1)
+    signature: str = Field(min_length=1, max_length=128)
+
+
+class FobDecisionOut(_Strict):
+    decision: Literal["allow", "deny"]
+    reason: str | None
+    key_id: str
+    vehicle_id: str | None
+    action: Literal["unlock", "lock"]
+    counter: int
+    last_counter: int | None  # the server's accepted counter after this press (None if the key is unknown)
+    lock_state: Literal["locked", "unlocked"] | None
+    duration_ms: int
+    trace: list[TraceStepOut]

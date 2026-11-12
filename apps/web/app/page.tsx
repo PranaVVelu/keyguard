@@ -6,8 +6,9 @@ import { useCallback, useEffect, useState } from "react";
 import { DecisionPanel } from "@/components/DecisionPanel";
 import { LabMeta, StartLab } from "@/components/LabBar";
 import { VehicleVisual } from "@/components/VehicleVisual";
-import { ApiError, listEvents, type Action, type Decision, type SecurityEvent } from "@/lib/api";
-import { ClientRefusal, performAction } from "@/lib/auth-flow";
+import { ApiError, listEvents, type Action, type Decision, type FobDecision, type SecurityEvent } from "@/lib/api";
+import { cardTapAction, ClientRefusal, performAction, performFobPress } from "@/lib/auth-flow";
+import { CREDENTIALS, credentialTypeOf } from "@/lib/credentials";
 import { describeReason, eventLabel, eventQueryString } from "@/lib/events";
 import { getKey } from "@/lib/keystore";
 import { useLab } from "@/lib/use-lab";
@@ -22,8 +23,8 @@ export default function GaragePage() {
   const { session, ready, start, end, lost, notice } = useLab();
   const { vehicle, setVehicle, usable, error: loadError, refresh } = useLabKeys(session, lost);
   const [selectedKey, setSelectedKey] = useState<string>("");
-  const [decision, setDecision] = useState<Decision | null>(null);
-  const [pending, setPending] = useState<Action | null>(null);
+  const [decision, setDecision] = useState<Decision | FobDecision | null>(null);
+  const [pending, setPending] = useState<Action | "tap" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<SecurityEvent | null>(null);
@@ -44,15 +45,22 @@ export default function GaragePage() {
 
   const keyId = usable.some((k) => k.id === selectedKey) ? selectedKey : (usable[0]?.id ?? "");
 
-  const run = async (action: Action) => {
+  const selected = usable.find((k) => k.id === keyId);
+  const selectedType = selected ? credentialTypeOf(selected) : "phone";
+
+  const run = async (action: Action, label: Action | "tap" = action) => {
     if (!session || !vehicle || !keyId) return;
-    setPending(action);
+    setPending(label);
     setError(null);
     try {
       const stored = await getKey(keyId);
       if (!stored) throw new ClientRefusal("KEY_NOT_IN_BROWSER", "Private key for this key ID is not in this browser");
-      const { decision: d } = await performAction(session, { vehicleId: vehicle.id, keyId, action }, stored.privateKey);
-      setDecision(d!);
+      const req = { vehicleId: vehicle.id, keyId, action };
+      const d =
+        selectedType === "fob"
+          ? (await performFobPress(session, req, stored.privateKey)).decision
+          : (await performAction(session, req, stored.privateKey)).decision!;
+      setDecision(d);
       // Lock state shown on screen comes from the server's decision, then a fresh read.
       if (d?.lock_state) setVehicle({ ...vehicle, lock_state: d.lock_state });
       await refresh();
@@ -134,31 +142,54 @@ export default function GaragePage() {
                   >
                     {usable.map((k) => (
                       <option key={k.id} value={k.id}>
-                        {k.label} ({k.fingerprint.slice(0, 8)}…)
+                        {k.label} · {CREDENTIALS[credentialTypeOf(k)].label} ({k.fingerprint.slice(0, 8)}…)
                       </option>
                     ))}
                   </select>
                 </label>
-                {(["unlock", "lock"] as const).map((action) => (
+                {selectedType === "card" && vehicle ? (
                   <button
-                    key={action}
                     type="button"
-                    onClick={() => run(action)}
+                    onClick={() => run(cardTapAction(vehicle.lock_state), "tap")}
                     disabled={pending !== null}
                     className="rounded-md bg-fg px-4 py-2 text-sm font-medium text-bg disabled:opacity-60"
                   >
-                    {pending === action ? "Verifying…" : `Request ${action}`}
+                    {pending === "tap" ? "Verifying…" : `Tap card on reader (${cardTapAction(vehicle.lock_state)})`}
                   </button>
-                ))}
-                <Link href="/inspector" className="ml-auto text-sm text-accent underline-offset-4 hover:underline">
-                  Step through it in the Inspector →
-                </Link>
+                ) : (
+                  (["unlock", "lock"] as const).map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      onClick={() => run(action)}
+                      disabled={pending !== null}
+                      className={`px-4 py-2 text-sm font-medium disabled:opacity-60 ${
+                        selectedType === "fob"
+                          ? "rounded-full border border-line bg-bg text-fg hover:border-accent"
+                          : "rounded-md bg-fg text-bg"
+                      }`}
+                    >
+                      {pending === action
+                        ? "Verifying…"
+                        : selectedType === "fob"
+                          ? `Press ${action} button`
+                          : `Request ${action}`}
+                    </button>
+                  ))
+                )}
+                {selectedType !== "fob" && (
+                  <Link href="/inspector" className="ml-auto text-sm text-accent underline-offset-4 hover:underline">
+                    Step through it in the Inspector →
+                  </Link>
+                )}
               </div>
             )}
             <p className="mt-3 text-xs text-muted">
-              Each request: server issues a 30-second challenge → this browser signs it with its non-extractable key → the
-              server verifies and decides. The car graphic only mirrors the backend&apos;s answer. A valid signature
-              doesn&apos;t prove you&apos;re physically near the car.
+              {selectedType === "fob"
+                ? "Each press: this browser reserves the next counter, signs (counter, action) with its non-extractable key, and the server accepts it only if the counter is higher than any it has seen."
+                : "Each request: server issues a 30-second challenge → this browser signs it with its non-extractable key → the server verifies and decides."}{" "}
+              The car graphic only mirrors the backend&apos;s answer. A valid signature doesn&apos;t prove you&apos;re
+              physically near the car.
             </p>
             {latest && (
               <p className="mt-4 border-t border-line pt-3 text-xs text-muted">
