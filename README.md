@@ -1,25 +1,38 @@
 # KeyGuard
 
-Educational digital-vehicle-access security lab: ECDSA P-256 challenge-response, revocation,
-replay protection and an isolated vulnerable-vs-hardened comparison. Fictional vehicles only.
+[![CI](https://github.com/PranaVVelu/keyguard/actions/workflows/ci.yml/badge.svg)](https://github.com/PranaVVelu/keyguard/actions/workflows/ci.yml)
 
-**Status: MVP complete (Sprint 8 of 8).** All seven P0 features plus Security Analytics (F08) work end to end, and the
-backend makes every decision:
-- **Garage:** request unlock or lock and see the server's decision.
+An educational lab for digital car keys. You enroll a browser-generated key, unlock a fictional car with ECDSA P-256
+challenge-response, and then attack it. Each attack runs against an isolated vulnerable verifier and the real engine,
+side by side. Fictional vehicles only.
+
+**Live demo: https://keyguard-six.vercel.app** · **[Case study](docs/CASE_STUDY.md)** · [Demo script](docs/DEMO.md)
+
+![Start a lab, enroll a key, unlock, replay the response, compare verifiers](docs/media/demo.gif)
+
+**What's in it** (the backend makes every decision; the UI only shows them):
+- **Garage:** request unlock or lock and see the server's decision with its six checks.
 - **Digital Keys:** non-extractable browser keys, enrollment and revocation.
-- **Inspector:** a step-by-step view of a real challenge-response exchange.
-- **Attack Lab:** replay, tampering and signed-bytes substitution scenarios against an isolated vulnerable verifier and the real engine, side by side.
+- **Inspector:** a step-by-step view of a real challenge-response exchange, then a replay of it.
+- **Attack Lab:** six scenarios (replay, tampering, signed-bytes substitution, fob replay, fob capture, relay), each
+  run against both verifiers.
 - **Security Analytics:** a searchable event log with failure categories.
-- **Credential types (F10):** phone, passive key card, and a rolling-counter key fob, each with Attack Lab scenarios.
-- **Proximity (F11, conceptual):** a relay demo showing that a valid signature doesn't prove distance.
-- **Accounts (F12, optional):** sign in with a passkey (no passwords) to save labs for 30 days and reopen them anywhere.
+- **Credential types:** phone, passive key card, and a rolling-counter key fob.
+- **Proximity (conceptual):** a relay demo showing that a valid signature doesn't prove distance.
+- **Accounts (optional):** sign in with a passkey (no passwords) to save labs for 30 days.
 
-The spec's 11-row mandatory test matrix passes through the real API ([latest evidence](docs/evidence/matrix-latest.md)).
-Real-browser Playwright tests drive the whole journey, and all of it runs in CI.
+| Garage | Attack Lab |
+|---|---|
+| ![Garage](docs/media/garage.png) | ![Attack Lab](docs/media/attack-lab.png) |
 
-**Live demo: https://keyguard-six.vercel.app** (free Vercel + Neon Postgres, smoke-tested in production; see
-[the results](docs/SECURITY_TESTS.md#live-deployment-smoke-test)). It also runs locally with one command. The usability
-sessions haven't been run yet. See [docs/RELEASE_GATES.md](docs/RELEASE_GATES.md) for exactly what is and isn't met.
+**Evidence:**
+- 397 API tests pass on SQLite and PostgreSQL, and the spec's 11-row mandatory test matrix passes through the real API
+  ([latest evidence](docs/evidence/matrix-latest.md)).
+- Playwright drives the whole journey in a real browser, including WCAG A/AA scans with axe.
+- All of it runs in CI.
+- The live deployment was smoke-tested in production ([results](docs/SECURITY_TESTS.md#live-deployment-smoke-test)).
+- The usability sessions haven't been run yet. [docs/RELEASE_GATES.md](docs/RELEASE_GATES.md) shows exactly what is
+  and isn't met.
 
 ## Quick start
 
@@ -102,6 +115,7 @@ background cleanup task (`KEYGUARD_CLEANUP_INTERVAL`, default 300 s).
 
 ## Docs
 
+- [Case study](docs/CASE_STUDY.md)
 - [Product requirements and status](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Release gates](docs/RELEASE_GATES.md)
