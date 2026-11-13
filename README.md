@@ -133,3 +133,7 @@ background cleanup task (`KEYGUARD_CLEANUP_INTERVAL`, default 300 s).
 
 A valid signature does not prove physical proximity (relay attacks are out of scope). Browser keys are not hardware-backed.
 Passing the curated test suite does not prove the system is secure in general.
+
+## License
+
+[MIT](LICENSE). KeyGuard is an educational simulator: it uses fictional vehicles only and is not meant for real vehicle access.
