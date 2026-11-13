@@ -17,9 +17,9 @@ backend makes every decision:
 The spec's 11-row mandatory test matrix passes through the real API ([latest evidence](docs/evidence/matrix-latest.md)).
 Real-browser Playwright tests drive the whole journey, and all of it runs in CI.
 
-It's ready as a **local demo**. Public hosting needs the gates in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) first, and
-the usability sessions haven't been run yet. See [docs/RELEASE_GATES.md](docs/RELEASE_GATES.md) for exactly what is
-and isn't met.
+**Live demo: https://keyguard-six.vercel.app** (free Vercel + Neon Postgres, smoke-tested in production; see
+[the results](docs/SECURITY_TESTS.md#live-deployment-smoke-test)). It also runs locally with one command. The usability
+sessions haven't been run yet. See [docs/RELEASE_GATES.md](docs/RELEASE_GATES.md) for exactly what is and isn't met.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ docker compose up --build      # then open http://localhost:3000
 
 Then follow the [demo script](docs/DEMO.md).
 
-To host it for free (no domain needed): [docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md). One Vercel project runs both apps,
+To host your own copy for free (no domain needed): [docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md). One Vercel project runs both apps,
 with Neon Postgres added from Vercel's Storage tab.
 
 ## Layout

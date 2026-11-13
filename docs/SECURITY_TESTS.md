@@ -343,9 +343,31 @@ Mutation check (manual, all reverted). These were each caught:
 - removing the lab-row lock (on PostgreSQL);
 - removing the account-row lock (on PostgreSQL).
 
+## Live deployment smoke test
+
+Run by hand against **https://keyguard-six.vercel.app** on 2026-11-13, right after the first production deploy (Vercel
+Services, Neon Postgres, `KEYGUARD_ENV=production`, so the startup safety check passed).
+
+| Check | Result |
+|---|---|
+| `GET /api/health` | `{"status":"ok","database":"postgresql"}` |
+| Web security headers | CSP with `connect-src 'self'`, HSTS, `frame-ancestors 'none'`/`X-Frame-Options: DENY`, nosniff, `no-referrer`, permissions policy |
+| API security headers | strict CSP, `Cache-Control: no-store`, HSTS |
+| Lab isolation | missing or wrong lab token → uniform `404 LAB_NOT_FOUND` |
+| Strict request validation | a body claiming `"decision":"allow"` → `422` |
+| Cron cleanup endpoint | `404` without `CRON_SECRET` and with a wrong bearer |
+| Interactive API docs | `404` (off in production) |
+| Passkey login options | `rpId` is `keyguard-six.vercel.app`, user verification required; `403` without the CSRF header |
+| **Rate-limit key can't be spoofed** | every request sent a different fake `x-real-ip`; they were still counted as one visitor, and lab creation hit the 20-per-minute limit with `429` and `Retry-After` (Vercel's edge overwrites the header) |
+| Core flow in a real browser | start lab → enroll phone key → unlock: **ALLOWED · UNLOCKED**, all six checks, 14 ms server time |
+| Attack Lab replay | vulnerable verifier ACCEPTED; production engine REJECTED with `CHALLENGE_CONSUMED` |
+
+Not checked live: creating a passkey (it needs the owner's device prompt). The same flow is covered by
+`test_accounts_api` and the passkey e2e tests in both deployment modes.
+
 ## Known gaps
 
 - Usability sessions with real participants (spec §11 targets) have not been run; see `USABILITY.md`.
 - The CI API job has no Node, so the *fresh* interop test is skipped there; the committed vector still runs.
 - The web CSP still allows inline scripts (`'unsafe-inline'`); a nonce-based policy is a follow-up (D-013).
-- Alerting is the host's job and isn't configured, because nothing is deployed yet.
+- Alerting beyond Vercel's built-in function logs isn't configured.
