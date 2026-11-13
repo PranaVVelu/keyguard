@@ -362,8 +362,23 @@ Services, Neon Postgres, `KEYGUARD_ENV=production`, so the startup safety check 
 | Core flow in a real browser | start lab → enroll phone key → unlock: **ALLOWED · UNLOCKED**, all six checks, 14 ms server time |
 | Attack Lab replay | vulnerable verifier ACCEPTED; production engine REJECTED with `CHALLENGE_CONSUMED` |
 
-Not checked live: creating a passkey (it needs the owner's device prompt). The same flow is covered by
-`test_accounts_api` and the passkey e2e tests in both deployment modes.
+### Passkey accounts, live (2026-11-13)
+
+Run with `scripts/smoke/passkey-live.mjs`, which uses Chromium's virtual WebAuthn authenticator (a real CTAP2
+implementation inside the browser, so nothing on the server is mocked). It creates two throwaway accounts and deletes
+both at the end. 14/14 checks passed:
+
+| Check | Result |
+|---|---|
+| Register a passkey | discoverable credential with user verification, bound to rpId `keyguard-six.vercel.app` |
+| Session cookie | `kg_session` is HttpOnly, Secure, SameSite=Strict, Path=/api; `document.cookie` can't see it |
+| Save a lab, sign out, usernameless sign-in | works; the authenticator's signature counter advanced (1 → 2) |
+| Reopen the saved lab | same lab with a fresh token; the old token now gets `404` |
+| Saved-lab privacy | a second account sees 0 saved labs and not the first account's lab |
+| Delete both accounts | done; the old session gets `401`, and the deleted passkey is refused with `PASSKEY_UNKNOWN` |
+
+A real device's passkey prompt (Touch ID, iCloud Keychain) wasn't used; the browser-side `navigator.credentials` calls
+are the same either way.
 
 ## Known gaps
 
