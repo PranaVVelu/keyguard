@@ -1,4 +1,4 @@
-# Release gates (spec §11): status at end of Sprint 11
+# Release gates (spec §11): status at end of Sprint 11 (deployed 2026-11-13)
 
 | Gate | Status | Evidence |
 |------|--------|----------|
@@ -7,7 +7,7 @@
 | Attack lab is isolated from the hardened authentication path | ✅ Met | AST import-graph test; scenarios run on disposable state ([ARCHITECTURE.md](ARCHITECTURE.md)) |
 | Automated tests run in CI and failures block release | ✅ Met | CI jobs: API + matrix, web, Playwright e2e, Docker smoke test |
 | Threat model, architecture, test evidence and limitations are documented | ✅ Met | [THREAT_MODEL.md](THREAT_MODEL.md), [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY_TESTS.md](SECURITY_TESTS.md), [DECISIONS.md](DECISIONS.md) |
-| Hosted demo has session isolation, resource limits and event retention controls | ◐ Ready, not hosted | Controls tested (D-009), and production hardening done (D-013): PostgreSQL, shared limiter, trusted proxies, security headers, startup safety check. Remaining: pick a host, set up alerting, run usability sessions ([DEPLOYMENT.md](DEPLOYMENT.md)) |
+| Hosted demo has session isolation, resource limits and event retention controls | ✅ Met (hosted) | Controls tested (D-009) and hardened for production (D-013). Live at https://keyguard-six.vercel.app (Vercel Services + Neon Postgres), with a production smoke test of isolation, limits, headers and the core flows ([SECURITY_TESTS.md](SECURITY_TESTS.md#live-deployment-smoke-test)). Alerting beyond Vercel's built-in logs isn't set up |
 
 ## Success metrics
 
@@ -19,8 +19,6 @@
 | Clarity ≥ 4/5 | ❌ Not run |
 | Local median auth response < 300 ms | ◐ Server-side median ≈ 1 ms; full browser round trip not formally measured |
 
-**Verdict:** the MVP is ready as a local, portfolio-grade demo, and the code is ready to host. The remaining steps are
-outside the code:
-- choose a host and configure it with the production environment in DEPLOYMENT.md;
-- set up alerting;
-- run the usability sessions.
+**Verdict:** the MVP is a hosted, portfolio-grade demo. The remaining steps are outside the code:
+- run the usability sessions;
+- optionally, add alerting on top of Vercel's logs.
